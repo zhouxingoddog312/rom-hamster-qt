@@ -20,8 +20,10 @@ ctest --preset linux-cli
 ```
 
 四组预设对应 ARCHITECTURE.md 的构建矩阵：`linux-cli`、`linux-gui`、`windows-cli`、`windows-gui`。
-Windows 上需先进入 MSVC 环境（`vcvars64.bat`），并让 pkg-config 能找到核心五库
-（推荐 MSYS2 或 vcpkg，详见 §8.4）。
+Windows 上已验证的路径是 MSYS2「MINGW64」shell + `mingw-w64-x86_64-*` 包（GCC/CMake/Ninja/pkgconf/glib2/sqlite3/libarchive/libxml2/zlib/qt6-base），
+在该 shell 里直接 `cmake --preset windows-cli` 即可；MSVC 2022 + vcpkg 为备选路径。
+
+CI 入口：`ci/build-matrix.sh`（Linux 跑本机两组并补 sanitizer，MSYS2 跑本机两组）。
 
 ## 目录
 

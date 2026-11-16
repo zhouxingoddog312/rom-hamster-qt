@@ -50,6 +50,8 @@
   ],
   "testPresets": [
     { "name": "linux-cli", "configurePreset": "linux-cli", "output": { "outputOnFailure": true } },
-    { "name": "linux-gui", "configurePreset": "linux-gui", "output": { "outputOnFailure": true } }
+    { "name": "linux-gui", "configurePreset": "linux-gui", "output": { "outputOnFailure": true } },
+    { "name": "windows-cli", "configurePreset": "windows-cli", "output": { "outputOnFailure": true } },
+    { "name": "windows-gui", "configurePreset": "windows-gui", "output": { "outputOnFailure": true } }
   ]
 }

@@ -906,7 +906,7 @@ typedef struct RhScraper {
 | CMake | 3.22 | 构建 |
 | Ninja | — | 后端（推荐） |
 | pkg-config | — | Linux 依赖探测 |
-| Qt 6 SDK | 6.8 LTS | GUI 构建；仅 `-DGUI=ON` 时需要 |
+| Qt 6 SDK | ≥ 6.8（发布包固定 6.8 LTS） | GUI 构建；仅 `-DGUI=ON` 时需要 |
 | gettext | — | CLI 的 `msgfmt` |
 | Inno Setup | 6.2 | Windows 安装包 |
 | linuxdeploy / appimagetool | — | AppImage |
@@ -924,6 +924,8 @@ typedef struct RhScraper {
 | libxml2 | `libxml2` | 2.9 | Logiqx DAT、`gamelist.xml` 流式解析 |
 
 Windows 侧这 5 个库随安装包分发（MSYS2/vcpkg 构建），不要求用户预装；`libromham.dll`、CLI 与 GUI 使用同一份运行时。
+
+**已落地的 Windows 工具链**：MSYS2 + mingw-w64（GCC 15）+ `mingw-w64-x86_64-*` 核心五库与 `qt6-base`，用 Ninja 构建；MSVC 2022 + vcpkg 为备选路径，两者都必须能通过同一份 `CMakeLists.txt`。
 
 ### 8.3 GUI 与可选依赖
 
@@ -966,6 +968,8 @@ pkg-config --modversion glib-2.0; sqlite3 --version; qmake6 -query QT_VERSION; l
 4. Windows `-DGUI=OFF`
 
 外加 Linux 的 `-DSANITIZE=address,undefined` 构建（CMake 选项，内部展开为编译与链接标志）。依赖断言进 CI：Linux `ldd libromham.so` 与 Windows `dumpbin /dependents romham.dll` 不得出现 `Qt6*`/`gtk*`/`gdk*`/`pango*`。
+
+CI 入口是 `ci/build-matrix.sh`：在 Linux 上跑 `linux-cli`/`linux-gui` 两个预设并在末尾补一组 `-DRH_SANITIZE=address,undefined`；在 MSYS2(MINGW64) 上跑 `windows-cli`/`windows-gui`。两个平台各跑一次即覆盖四组矩阵。Gitee 仓库还需在 Web 设置里启用 Go 流水线并让它调用该脚本，这一步只能在仓库页面完成。
 
 ---
 
