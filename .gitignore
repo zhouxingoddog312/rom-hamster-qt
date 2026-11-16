@@ -1,0 +1,52 @@
+# 构建产物
+/build/
+/build-*/
+/out/
+/dist/
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dll
+*.pdb
+*.ilk
+*.exe
+*.app
+*.AppImage
+*.tar.gz
+
+# CMake / Qt 生成物
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+compile_commands.json
+*_autogen/
+*.qm
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+.qmake.stash
+.qt/
+
+# IDE / 编辑器
+.vscode/
+.idea/
+.vs/
+*.user
+*.sln
+*.vcxproj*
+*.xcodeproj/
+*.autosave
+
+# 系统
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# 过程产物（技术选型调研、截图等，不入库）
+/2026-11-16/
+/.screenshots/
+*.log
