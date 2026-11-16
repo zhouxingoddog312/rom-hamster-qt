@@ -2,10 +2,11 @@
 
 > 版本：v0.5（2026-11-16）
 > 本版修订：
-> 1. 把 §16 的 8 个待定项全部定案：不做历史数据转换工具；GUI 首版只做主窗口/详情/导入/首启/拖拽；Windows 只出 zip + Inno Setup；不签名、公布校验和；视频默认外部播放器、Qt Multimedia 可选构建；Linux CLI 走 deb（免安装给 tarball）、AppImage 只用于 GUI；版本检查只提示不安装；补 SVG 图标源文件。
+> 1. 把 §16 的 8 个待定项全部定案：不做历史数据转换工具；GUI 首版只做主窗口/详情/导入/首启/拖拽；Windows 只出 zip + Inno Setup；不签名、公布校验和；视频默认外部播放器、Qt Multimedia 可选构建；Linux CLI 走 deb（免安装给 tarball）、AppImage 只用于 GUI；版本检查只提示不安装；图标源文件已具备（`icons/scalable/apps/rom-hamster.svg`，512×512）。
 > 2. 新增 §9.4 升级语义：deb / Windows 安装包 / AppImage 均为原地覆盖升级；启动时执行 schema 迁移，并拒绝"旧程序打开更高版本库"。
 > 3. §8、§9、§11、§14 按上述决策校正：Multimedia 统一为可选构建；AppImage 不再描述为 CLI+GUI 双入口包；M4/M5 验收范围与功能清单对齐；新增版本检查（仅 GUI、Qt Network、失败静默）。
-> 4. §16 从"待定项"改为"已定项与遗留问题"，仅保留 2 个真正未决事项。
+> 4. §16 从"待定项"改为"已定项与遗留问题"，仅保留 1 个真正未决事项。
+> 5. 按仓库实际图标布局校正 §0、§1.1、§2.2、§9.3、§11、§16：源文件为 `icons/scalable/apps/rom-hamster.svg`，PNG 在 `icons/<尺寸>/apps/`，`_preview_64.png` 仅评审用。该 SVG 内部包装一张 512×512 位图，**不是真矢量**，超出 512 放大为插值；Q2（SVG 由谁产出）随之关闭。
 > 本文是功能规格与架构决策，不描述任何历史实现的移植关系。
 
 ## 0. 决策索引（按议题查章节）
@@ -31,7 +32,7 @@
 | 前端规格 | 每前端一份 `.conf`，模板优先、vtable 兜底；解析期报错带行号 | §7 |
 | gamelist.xml | `xmlDoc` + XPath；单文件过大则报错要求拆分 | §7.2 |
 | Pegasus | 记录以 EOF 收尾、描述支持续行、补 `assets.screenshot`/`assets.titlescreen`（注意全小写） | §7.2 |
-| 图标 | `rom-hamster.svg` 为源文件；16/32/48/256 PNG 由 SVG 导出并入库；Windows `.ico` 由构建从 256 PNG 生成 | §1.1 §9.3 |
+| 图标 | 仓库根 `icons/`（FDO 主题布局）：`scalable/apps/rom-hamster.svg`（512×512）为源文件；16/32/48/256 PNG 由它导出并入库；Windows `.ico` 由构建从 256 PNG 生成 | §1.1 §9.3 |
 | 二进制命名 | CLI `rom-hamster`、GUI `rom-hamster-gui`，Windows 加 `.exe` | §9.3 |
 | 打包 | Linux：deb 三包 + CLI tarball + GUI AppImage；Windows：zip + Inno Setup | §9 |
 | 配置 | 五层合并 + 来源记录 + `config --explain`；双端路径映射 | §10 |
@@ -66,7 +67,7 @@
 4. 除 `store.c` 外，其他源文件不得出现 SQL 语句。
 5. Qt 只允许出现在 `rom-hamster-gui` 与 AppImage/Windows 包的 GUI 侧；CLI 与核心不加载 Qt。
 
-图标资产：`data/rom-hamster.svg` 是唯一源文件；`data/icons/{16,32,48,256}/rom-hamster.png` 由该 SVG 导出并入库（两者必须保持同一图形）；Windows 的 `.ico` 由构建从 256 PNG 生成。Linux 安装 PNG，Windows 安装 ICO（窗口图标同时用 PNG）。
+图标资产：仓库根 `icons/` 采用 FDO 主题布局。`icons/scalable/apps/rom-hamster.svg` 是唯一源文件（512×512；当前该 SVG 内部包装一张 512×512 的位图，**并非真矢量**，超过 512 的放大属插值）；`icons/{16x16,32x32,48x48,256x256}/apps/rom-hamster.png` 由该源文件导出并入库，四个 PNG 与源文件必须保持同一图形；`icons/_preview_64.png` 只供评审预览，不安装、不参与构建。Windows 的 `rom-hamster.ico` 由构建从 256 PNG 生成。Linux 按 hicolor 装到 `/usr/share/icons/hicolor/<尺寸>/apps/`，Windows 安装 ICO（窗口图标同时用 PNG）。
 
 ### 1.2 非目标
 
@@ -137,9 +138,14 @@ rom-hamster/
 │  ├─ rom-hamster.conf.template
 │  ├─ io.github.goddog312.RomHamster.desktop
 │  ├─ io.github.goddog312.RomHamster.metainfo.xml
-│  ├─ rom-hamster.svg          # 图标源文件
-│  ├─ icons/{16,32,48,256}/rom-hamster.png
 │  └─ rom-hamster.1
+├─ icons/                      # FDO 图标布局；安装到 /usr/share/icons/hicolor/
+│  ├─ 16x16/apps/rom-hamster.png
+│  ├─ 32x32/apps/rom-hamster.png
+│  ├─ 48x48/apps/rom-hamster.png
+│  ├─ 256x256/apps/rom-hamster.png
+│  ├─ scalable/apps/rom-hamster.svg   # 512×512，唯一源文件（内嵌位图，非真矢量）
+│  └─ _preview_64.png          # 仅供评审预览，不安装、不参与构建
 ├─ src/
 │  ├─ core/                    # C11
 │  │  ├─ rh-ctx.h/.c           # RhCtx：配置、存储句柄、ui 回调、日志、缓存目录
@@ -1012,7 +1018,7 @@ Windows：
 - CLI 为 `rom-hamster`（Windows 为 `rom-hamster.exe`），子命令 `init / import / list / search / show / edit / delete / export / stats / config / help / version`。
 - GUI 为 `rom-hamster-gui`（Windows 为 `rom-hamster-gui.exe`）；Linux 桌面文件 `Exec=rom-hamster-gui`。
 - AppImage 的应急 CLI 入口为 `rom-hamster.AppImage --cli …`；CLI 的免安装形态为 `rom-hamster-<ver>-linux-x86_64.tar.gz`。
-- 图标资产：`data/rom-hamster.svg` 为源文件；`data/icons/{16,32,48,256}/rom-hamster.png` 由该 SVG 导出并入库；构建从 256 PNG 生成 `rom-hamster.ico`。SVG、PNG、ICO 必须保持同一图形。
+- 图标资产：`icons/scalable/apps/rom-hamster.svg` 为源文件（512×512，内嵌 512×512 位图，非真矢量）；`icons/{16x16,32x32,48x48,256x256}/apps/rom-hamster.png` 由它导出并入库；构建从 256 PNG 生成 `rom-hamster.ico`；`icons/_preview_64.png` 仅供评审，不安装。SVG、四个 PNG、ICO 必须保持同一图形。Linux 装到 `/usr/share/icons/hicolor/<尺寸>/apps/`（`scalable` 装 SVG），Windows 装 ICO。
 - 不提供与其他 ROM 管理器或历史版本的行为兼容层、配置兼容层、元数据转换层。
 
 ### 9.4 升级语义（三端一致：原地覆盖）
@@ -1105,7 +1111,7 @@ ROM_ROOT = /home/zhoux/roms
 | 界面构建 | Qt Widgets + `.ui` + `.qrc` 编译进二进制；不手写整棵控件树；明暗主题跟随系统（`QStyleHints::colorScheme`），不做强制主题 |
 | 主窗口列表 | `QTableView` + 自定义 `QAbstractTableModel`，按需分页读取核心；行高固定、按视口取数，保证万行级滚动；筛选条件交给核心 SQL，不在 GUI 侧全量过滤 |
 | 详情页（媒体同窗） | 元数据 `QFormLayout`/`QGridLayout` + 8 类资源分页（`QTabWidget`/`QStackedWidget`：ROM文件/封面/截图/视频/横幅/合成图/说明/补丁），与游戏目录的 8 个子目录一一对应。图片经 `QImageReader` 在工作线程解码、按控件尺寸缩放、磁盘缩略图缓存（键 = 路径+mtime+尺寸，目录 `QStandardPaths::CacheLocation/thumbs`）；视频默认 `QDesktopServices::openUrl` 交外部播放器，启用 Qt Multimedia 构建时用 `QMediaPlayer` + `QVideoWidget` 内嵌播放；说明文本用只读 `QPlainTextEdit` 显示原文（**不解析 Markdown**） |
-| 图标与元数据 | `rom-hamster.svg` 为源文件，16/32/48/256 PNG 由 SVG 导出并入库；构建生成 `.ico`；Linux `.desktop`（`Exec=rom-hamster-gui`）+ AppStream metainfo（含截图与发布说明）+ man page |
+| 图标与元数据 | `icons/scalable/apps/rom-hamster.svg` 为源文件，`icons/<尺寸>/apps/` 下 16/32/48/256 PNG 由它导出并入库；构建从 256 PNG 生成 `.ico`；Linux `.desktop`（`Exec=rom-hamster-gui`）+ AppStream metainfo（含截图与发布说明）+ man page |
 | 国际化 | CLI：gettext，msgid 用英文，提供 `zh_CN` `.po`；GUI：Qt Linguist，`.ts` 源文件 + `.qm` 编译进 `.qrc`。AppStream 描述必须英文。核心库不含任何用户可见字符串，两套 i18n 互不重叠 |
 | 首次运行 | CLI：`ROM_ROOT` 未配置时报错并提示 `rom-hamster init --root <dir>`。GUI：启动即 `QFileDialog::getExistingDirectory` 选目录，选完直接建库入库并进入主窗口，不插入欢迎页 |
 | 库版本防护 | 启动时检查 `PRAGMA user_version`：低于当前则迁移；高于当前则只读并提示"请升级 rom-hamster"，禁止写入（§3.4、§9.4） |
@@ -1268,7 +1274,7 @@ CI 能自动化的只有「首屏渲染」与「内存增长」两项（Linux xv
 | P5 视频 | 默认外部播放器；Qt Multimedia 是**可选构建**（`-DMULTIMEDIA=ON`，默认 OFF） | §8.3 §11 |
 | P6 Linux CLI | CLI 走 deb；免安装给 `.tar.gz`；AppImage **只用于 GUI**，`--cli` 仅应急，不单独出 CLI AppImage | §9.1 §9.3 |
 | P7 更新 | 只做版本检查：启动静默查询，有新版本提示并打开下载页；**不下载、不静默安装**；失败不影响启动 | §10 §11 |
-| P8 图标 | 补 `rom-hamster.svg` 源文件；PNG 由 SVG 导出；ICO 由构建生成 | §1.1 §9.3 |
+| P8 图标 | **已具备**：`icons/scalable/apps/rom-hamster.svg`（512×512，内嵌位图）与 16/32/48/256 PNG 齐备且同一图形；ICO 由构建从 256 PNG 生成 | §1.1 §9.3 |
 | 升级 | 三端原地覆盖；用户数据与库不受安装影响；启动检查 schema，高版本库只读并提示升级 | §3.4 §9.4 |
 
 ### 16.2 真正遗留的问题
@@ -1276,4 +1282,5 @@ CI 能自动化的只有「首屏渲染」与「内存增长」两项（Linux xv
 | 编号 | 问题 | 影响 | 临时办法 |
 |---|---|---|---|
 | Q1 | 版本检查元数据的托管位置与 JSON 字段最终形态（仓库 Releases / 独立静态文件 / CDN） | P7 上线依赖它 | 先用仓库 Releases 页的静态 JSON；`update_check_url` 由构建注入，为空则跳过检查 |
-| Q2 | `rom-hamster.svg` 的绘制与 PNG 导出由谁维护、何时产出 | 只影响打包与图标一致性，不阻塞 M0–M3 | 按现有 PNG 重绘为 SVG，导出四尺寸并与现有 PNG 比对 |
+
+原 Q2（`rom-hamster.svg` 由谁绘制、何时导出 PNG）**已关闭**：源文件与四尺寸 PNG 均已入库且为同一图形；后续只需在改图时同步重新导出，无待办。
