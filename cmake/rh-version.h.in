@@ -1,0 +1,14 @@
+/* 由 CMake configure_file 生成，勿手改 */
+#ifndef RH_VERSION_H
+#define RH_VERSION_H
+
+#define RH_VERSION       "@PROJECT_VERSION@"
+#define RH_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
+#define RH_VERSION_MINOR @PROJECT_VERSION_MINOR@
+#define RH_VERSION_PATCH @PROJECT_VERSION_PATCH@
+
+#define RH_PROJECT_NAME  "rom-hamster"
+#define RH_REPO_URL      "https://gitee.com/goddog312/rom-hamster-qt"
+#define RH_ISSUES_URL    "https://gitee.com/goddog312/rom-hamster-qt/issues"
+
+#endif /* RH_VERSION_H */

@@ -1,0 +1,55 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "linux-cli",
+      "displayName": "Linux · CLI（无 Qt）",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux-cli",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "RH_GUI": "OFF"
+      }
+    },
+    {
+      "name": "linux-gui",
+      "displayName": "Linux · CLI + GUI（Qt 6.8）",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux-gui",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "RH_GUI": "ON"
+      }
+    },
+    {
+      "name": "windows-cli",
+      "displayName": "Windows · CLI（无 Qt）",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/windows-cli",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "RH_GUI": "OFF"
+      }
+    },
+    {
+      "name": "windows-gui",
+      "displayName": "Windows · CLI + GUI（Qt 6.8 MSVC）",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/windows-gui",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "RH_GUI": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "linux-cli", "configurePreset": "linux-cli" },
+    { "name": "linux-gui", "configurePreset": "linux-gui" },
+    { "name": "windows-cli", "configurePreset": "windows-cli" },
+    { "name": "windows-gui", "configurePreset": "windows-gui" }
+  ],
+  "testPresets": [
+    { "name": "linux-cli", "configurePreset": "linux-cli", "output": { "outputOnFailure": true } },
+    { "name": "linux-gui", "configurePreset": "linux-gui", "output": { "outputOnFailure": true } }
+  ]
+}
