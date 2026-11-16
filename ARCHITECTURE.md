@@ -977,7 +977,7 @@ pkg-config --modversion glib-2.0; sqlite3 --version; qmake6 -query QT_VERSION; l
 
 | 包 | 内容 | 依赖 |
 |---|---|---|
-| `rom-hamster` | `/usr/bin/rom-hamster`、`/usr/lib/x86_64-linux-gnu/rom-hamster/libromham-1.0.so`、`/etc/rom-hamster/rom-hamster.conf`、`/etc/rom-hamster/platforms.conf`、man page | `libglib2.0-0 (>= 2.66)`, `libsqlite3-0 (>= 3.35)`, `libarchive13`, `zlib1g`, `libxml2` |
+| `rom-hamster` | `/usr/bin/rom-hamster`、`/usr/lib/x86_64-linux-gnu/rom-hamster/libromham.so.1`（SONAME，实文件 `libromham.so.1.0.0`）、`/etc/rom-hamster/rom-hamster.conf`、`/etc/rom-hamster/platforms.conf`、man page | `libglib2.0-0 (>= 2.66)`, `libsqlite3-0 (>= 3.35)`, `libarchive13`, `zlib1g`, `libxml2` |
 | `rom-hamster-gui` | `/usr/bin/rom-hamster-gui`、`/usr/lib/rom-hamster/qt6/`（Qt 6.8 Core/Gui/Widgets/Network + TLS 插件）、`.desktop`、`/usr/share/icons/hicolor/{16x16,32x32,48x48,256x256}/apps/rom-hamster.png`、`/usr/share/icons/hicolor/scalable/apps/rom-hamster.svg`、AppStream metainfo | `rom-hamster`（= 同一版本核心）, `libstdc++6`, `libgcc-s1`；**不依赖发行版 Qt** |
 | `rom-hamster-data` | `/usr/share/rom-hamster/platforms.conf`（只读出厂默认）、`frontends/*.conf`、`rom-hamster.conf.template`、`LICENSE`、`changelog` | — |
 
