@@ -1,0 +1,9 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/icons">
+        <file alias="rom-hamster-16.png">icons/rom-hamster-16.png</file>
+        <file alias="rom-hamster-32.png">icons/rom-hamster-32.png</file>
+        <file alias="rom-hamster-48.png">icons/rom-hamster-48.png</file>
+        <file alias="rom-hamster-256.png">icons/rom-hamster-256.png</file>
+    </qresource>
+</RCC>
