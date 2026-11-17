@@ -71,4 +71,13 @@ packaging  deb / AppImage / Inno Setup
 
 ## 许可
 
-待定（M5 前确定）。
+本项目以 **MIT** 许可发布，见 [LICENSE](LICENSE)。Copyright (c) 2026 zhouxingoddog312。
+
+### Qt（LGPLv3）
+
+`rom-hamster-gui` 以**动态链接**方式使用 Qt 6（Core/Gui/Widgets/Network，可选 Multimedia），按 LGPLv3 分发：
+
+- 安装包内附 Qt 许可证文本与源码获取地址（发布时写入 `share/doc/rom-hamster/Qt-LICENSE*`）；
+- 不静态链接 Qt，也不修改 Qt 源码；
+- 用户可自行替换 Qt 动态库：Linux deb 装的 Qt 位于 `/usr/lib/rom-hamster/qt6/`，AppImage 解包后位于 `usr/lib/`，Windows 安装目录下为 `qt6/` 子目录，用同版本兼容的 Qt 库覆盖同名文件即可；
+- CLI（`rom-hamster`）与核心库 `libromham` 不链接任何 Qt 模块。

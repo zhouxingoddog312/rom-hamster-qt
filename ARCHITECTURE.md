@@ -74,6 +74,8 @@
 - `resources/icons/rom-hamster-{16,32,48,256}.png` —— 由源文件导出并入库，四个 PNG 与源文件必须保持同一图形。
 - `resources/icons/preview-64.png` —— 仅供评审预览，不进 `.qrc`、不安装、不参与构建。
 
+许可：项目主体以 **MIT** 发布（根目录 `LICENSE`）；`rom-hamster-gui` 动态链接 Qt 6（LGPLv3），安装包附 Qt 许可证文本与源码获取地址，不静态链接、允许用户替换 Qt 动态库；CLI 与核心库不含 Qt。
+
 GUI 通过 Qt 资源系统加载：`resources/resources.qrc` 以 `/icons` 前缀收录上述四个 PNG，代码用 `QIcon` 逐尺寸 `addFile(":/icons/rom-hamster-16.png")`… 组装多分辨率图标。**SVG 不进 `.qrc`**：渲染 SVG 需要 QtSvg，会破坏 §8.3 的依赖清单。Windows 的 `rom-hamster.ico` 由构建从 `rom-hamster-256.png` 生成。Linux 安装时由 CMake 把同一批素材映射成 FDO hicolor 布局（`/usr/share/icons/hicolor/{16x16,32x32,48x48,256x256}/apps/rom-hamster.png` 与 `/usr/share/icons/hicolor/scalable/apps/rom-hamster.svg`），保证桌面菜单/任务栏能取到图标；仓库内**不保留** hicolor 目录结构。
 
 ### 1.2 非目标
