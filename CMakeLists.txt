@@ -54,6 +54,8 @@ add_library(romham SHARED
     src/core/rh-err.c
     src/core/rh-ctx.c
     src/core/rh-path.c
+    src/core/rh-str.c
+    src/core/rh-records.c
     src/core/store.c
     src/core/store-schema.c
 )
@@ -163,6 +165,14 @@ if(BUILD_TESTING)
     target_link_libraries(test-path PRIVATE romham PkgConfig::GLIB2)
     add_test(NAME core/path COMMAND test-path)
 
+    add_executable(test-str tests/unit/test-str.c)
+    target_link_libraries(test-str PRIVATE romham PkgConfig::GLIB2)
+    add_test(NAME core/str COMMAND test-str)
+
+    add_executable(test-records tests/unit/test-records.c)
+    target_link_libraries(test-records PRIVATE romham PkgConfig::GLIB2)
+    add_test(NAME core/records COMMAND test-records)
+
     add_test(NAME core/no-gui-linkage
         COMMAND ${CMAKE_COMMAND}
             -DLIB=$<TARGET_FILE:romham>
@@ -182,6 +192,10 @@ endif()
 include(GNUInstallDirs)
 
 install(TARGETS rom-hamster RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+# 出厂平台规则（只读，见 §10.2 第 2 层）
+install(FILES data/platforms.conf
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/rom-hamster")
 
 if(RH_GUI)
     install(TARGETS rom-hamster-gui RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
