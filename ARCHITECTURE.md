@@ -969,7 +969,9 @@ pkg-config --modversion glib-2.0; sqlite3 --version; qmake6 -query QT_VERSION; l
 
 外加 Linux 的 `-DSANITIZE=address,undefined` 构建（CMake 选项，内部展开为编译与链接标志）。依赖断言进 CI：Linux `ldd libromham.so` 与 Windows `dumpbin /dependents romham.dll` 不得出现 `Qt6*`/`gtk*`/`gdk*`/`pango*`。
 
-CI 入口是 `ci/build-matrix.sh`：在 Linux 上跑 `linux-cli`/`linux-gui` 两个预设并在末尾补一组 `-DRH_SANITIZE=address,undefined`；在 MSYS2(MINGW64) 上跑 `windows-cli`/`windows-gui`。两个平台各跑一次即覆盖四组矩阵。Gitee 仓库还需在 Web 设置里启用 Go 流水线并让它调用该脚本，这一步只能在仓库页面完成。
+CI 入口是 `ci/build-matrix.sh`：在 Linux 上跑 `linux-cli`/`linux-gui` 两个预设并在末尾补一组 `-DRH_SANITIZE=address,undefined`；在 MSYS2(MINGW64) 上跑 `windows-cli`/`windows-gui`。两个平台各跑一次即覆盖四组矩阵。
+
+**当前验证状态（2026-11-17）**：四组已在真机跑通——Linux（GCC + Qt 6.10.2）与 Windows 11（MSYS2 MINGW64、GCC 16.2、Qt 6.12）的 CLI/GUI 两组均构建成功，`ctest` 各 5/5，其中包括在中文项目路径下运行的 `core/path`。Gitee Go 流水线尚未启用，启用后让它调用该脚本即可；在此之前由人工在两个平台的终端执行。
 
 ---
 
@@ -1198,7 +1200,7 @@ ROM_ROOT = /home/zhoux/roms
 | 多实例同时写 | 数据竞争 | GUI 用 `QLocalServer` 保证单实例；跨进程**不加锁文件**，靠 SQLite 自身的串行化写（WAL 下同一时刻只允许一个写者）+ `busy_timeout=5000`。超时报 `SQLITE_BUSY`，提示"另一实例正在写入，请稍后重试" |
 | Qt LGPLv3 合规 | 分发被质疑 | 只做动态链接；安装包附 Qt 许可证与源码获取地址；允许用户替换 Qt DLL；不静态链接 |
 | Windows 路径与命名 | 导入失败、文件丢失 | `rh-path` 统一 `\\?\` 长路径与 UTF-16 转换；`sanitize_dirname` 处理保留名/结尾点空格；查重与唯一性按不敏感比较（§15） |
-| 双工具链分叉 | 只在 Linux 能编 | CMake 单一入口；CI 四组构建；M0 就跑通 Windows，不拖到 M5 |
+| 双工具链分叉 | 只在 Linux 能编 | CMake 单一入口；CI 四组构建；M0 已在 Windows 11 + MSYS2(MINGW64) 实跑通过，不拖到 M5 |
 | Qt 包体积 | 安装包偏大 | 只带 Core/Gui/Widgets/Network 与必需插件；Multimedia 仅在 `-DMULTIMEDIA=ON` 时打包；AppImage 压缩 |
 | AppImage glibc 兼容 | 老系统跑不起来 | 构建基线 Ubuntu 22.04；文档写明 glibc ≥ 2.35 |
 | 视频后端许可与体积 | 包体增大、许可复杂 | 首版只做外部播放器；Qt Multimedia 为可选构建，默认关闭（§8.3） |
@@ -1232,6 +1234,19 @@ ROM_ROOT = /home/zhoux/roms
 | **M3 检索/管理/导出** | `query`、`detail`（CLI 纯文本）、`manage`、`export` 模板引擎 + 三份前端规格 | 13 维筛选 + 4 排序键结果与直接 SQL 对齐；导出的 ES-DE / Pegasus 清单能被对应前端正常读取；golden file 逐字节 diff 通过；故意写错的模板在**加载期**报出文件名与行号 |
 | **M4 GUI** | `ui-qt`、`QTableView` 主窗口、详情页 8 类媒体分页、导入进度/取消、首次运行引导、拖拽导入、单实例、版本检查（首版范围严格按 §11） | 见下方 §14.1 量化指标；空配置首启能走完"选目录 → 建库 → 主窗口"；拖入目录触发导入并有可见进度；中文/日文长文件名正常显示；Windows 使用系统文件对话框；断网时版本检查静默且不阻塞启动；视频默认外部播放器（Multimedia 可选构建不作为验收前提） |
 | **M5 打包与发布** | AppStream metainfo（含真实截图）、CLI gettext + GUI `.qm`、CI 矩阵、lintian 全绿、deb 三包、CLI tarball、GUI AppImage、Windows zip + Inno Setup、SHA-256 清单 | Ubuntu 22.04/24.04、Debian 12 的 deb 安装与**旧版→新版原地升级**通过；CLI tarball 解压可运行；GUI AppImage 双击可运行、`--cli` 应急入口可用、直接替换升级后用户数据保留；Windows zip 与 Inno Setup 覆盖安装通过（安装前自动关闭运行实例）；`dpkg -P` 干净卸载无残留；卸载保留用户数据；`appstreamcli validate` 通过 |
+
+**M0 状态（2026-11-17，已验证）**
+
+| 平台 | 工具链 | 构建 | 测试 |
+|---|---|---|---|
+| Linux（WSL Ubuntu，glibc 2.35+） | GCC、CMake 4.2、Qt 6.10.2 | `linux-cli`、`linux-gui` 两组通过 | 各 **5/5**（`core/rh-err`、`core/store`、`core/path`、`core/no-gui-linkage`、`tools/make-ico`） |
+| Windows 11 x64 | MSYS2 MINGW64、GCC 16.2、CMake 4.5、Qt 6.12 | `windows-cli` **17 目标**、`windows-gui` **29 目标**（含 `rom-hamster-gui.exe`）通过 | 各 **5/5**；`core/path` 在**含中文的项目路径**下通过，验证了 UTF-8 入口修复 |
+
+口径说明：
+
+- `core/no-gui-linkage` 在 Linux 用 `ldd`，Windows 上该用例跳过并提示由 `dumpbin` 在 M5 打包阶段检查；Windows 的 `dumpbin` 断言目前**尚未执行**，不记为已通过。
+- CLI 的 `--version` 已在 Linux 实测；两个 exe 的启动验收在 M1 首轮手动补记一次（M0 的 GUI 只是空窗口）。
+- 四组构建目前由 `ci/build-matrix.sh` 在本机执行；Gitee Go 流水线尚待在仓库页面启用。
 
 ### 14.1 M4 性能验收（量化）
 

@@ -3,7 +3,11 @@
 Windows 11 / Linux 双端 ROM 库管理器：C11 核心 `libromham` + CLI + Qt 6 Widgets GUI。
 规格与决策见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
-当前状态：**M0 骨架**（构建系统、核心库空壳、CLI `--version`、GUI 空窗口、schema v1 与迁移入口）。
+当前状态：**M0 骨架已完成并在双端验证**（2026-11-17）。
+
+- 构建系统、核心库空壳、CLI `--version`、GUI 空窗口、schema v1 与迁移入口
+- Linux（GCC + Qt 6.10.2）与 Windows 11（MSYS2 MINGW64、GCC 16.2、Qt 6.12）各跑 CLI/GUI 两组，`ctest` 均 **5/5**；`core/path` 在含中文的项目路径下通过
+
 业务功能从 M1 开始实现。
 
 ## 依赖
@@ -20,10 +24,10 @@ ctest --preset linux-cli
 ```
 
 四组预设对应 ARCHITECTURE.md 的构建矩阵：`linux-cli`、`linux-gui`、`windows-cli`、`windows-gui`。
-Windows 上已验证的路径是 MSYS2「MINGW64」shell + `mingw-w64-x86_64-*` 包（GCC/CMake/Ninja/pkgconf/glib2/sqlite3/libarchive/libxml2/zlib/qt6-base），
-在该 shell 里直接 `cmake --preset windows-cli` 即可；MSVC 2022 + vcpkg 为备选路径。
+Windows 侧验证过的路径是 MSYS2「MINGW64」shell + `mingw-w64-x86_64-*` 包（GCC/CMake/Ninja/pkgconf/glib2/sqlite3/libarchive/libxml2/zlib/qt6-base），
+在该 shell 里直接 `cmake --preset windows-cli` 即可；MSVC 2022 + vcpkg 为备选路径，尚未验证。
 
-CI 入口：`ci/build-matrix.sh`（Linux 跑本机两组并补 sanitizer，MSYS2 跑本机两组）。
+CI 入口：`ci/build-matrix.sh`（Linux 跑本机两组并补 sanitizer，MSYS2 跑本机两组）。四组已在本机跑通；Gitee Go 流水线待启用。
 
 ## 目录
 
