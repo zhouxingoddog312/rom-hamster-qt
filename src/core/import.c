@@ -134,7 +134,7 @@ static RhImportPlanEntry *scan_game_dir(RhImportPlan *plan,
                         if (g_file_test(media_full, G_FILE_TEST_IS_REGULAR)) {
                             RhImportMediaFile *media = g_new0(RhImportMediaFile, 1);
                             media->kind = g_strdup(kind);
-                            media->filename = g_strconcat(name, "/", media_name, NULL);
+                            media->filename = relative_join(name, media_name);
                             g_ptr_array_add(entry->media, media);
                             plan->files_scanned++;
                         }

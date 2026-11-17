@@ -979,9 +979,9 @@ CI 入口是 `ci/build-matrix.sh`：在 Linux 上跑 `linux-cli`/`linux-gui` 两
 | 平台 | 工具链 | CLI 预设 | GUI 预设 | `ctest` |
 |---|---|---|---|---|
 | Linux（WSL Ubuntu） | CMake 4.2.3、GCC 15.2、GLib 2.88、SQLite 3.46、Qt 6.10.2 | 全部目标 | 全部目标 | 各 **11/11** |
-| Windows 11 x64（MSYS2 MINGW64） | CMake 4.5、GCC 16.2、GLib 2.90.1、SQLite 3.54.1 | 待 M1 收尾复跑 | 待 M1 收尾复跑 | 上次 9/9（29/49 目标） |
+| Windows 11 x64（MSYS2 MINGW64） | CMake 4.5、GCC 16.2、GLib 2.90.1、SQLite 3.54.1 | 35 目标 | 59 目标 | 各 **11/11** |
 
-用例构成：`core/rh-err` 1、`core/store` 9、`core/path` 4、`core/str` 8、`core/records` 5、`core/platform` 4、`core/library` 2、`core/classify` 2、`core/import` 2、`core/no-gui-linkage` 1、`tools/make-ico` 1。Windows 侧同样在含中文的项目路径下通过，`core/path` 覆盖了 UTF-8 入口。
+用例构成：`core/rh-err` 1、`core/store` 10、`core/path` 4、`core/str` 8、`core/records` 5、`core/platform` 4、`core/library` 2、`core/classify` 2、`core/import` 2、`core/no-gui-linkage` 1、`tools/make-ico` 1（合计 40 个用例）。Windows 侧同样在含中文的项目路径下通过，`core/path` 覆盖了 UTF-8 入口；两侧构建均为 **0 warning**。Windows 侧同样在含中文的项目路径下通过，`core/path` 覆盖了 UTF-8 入口。
 
 **仍未做**：`dumpbin /dependents` 对 Windows 版 `libromham` 的 Qt 符号断言尚未执行（`core/no-gui-linkage` 在 Windows 跳过了 `ldd`），按 §8.4 安排到 M5 打包阶段补做。不要把这一条算作已通过。
 
@@ -1264,18 +1264,26 @@ ROM_ROOT = /home/zhoux/roms
 
 **M1 进度（2026-11-17）**
 
-已完成并提交：`rh-str`（8 用例）、`rh-records`（5 用例）、`store`（9 用例）、`platform`（4 用例）、`library`（2 用例）、`classify`（2 用例）、`import` 预扫描（2 用例）。
+已完成并提交：`rh-str`（8 用例）、`rh-records`（5 用例）、`store`（10 用例）、`platform`（4 用例）、`library`（2 用例）、`classify`（2 用例）、`import` 预扫描（2 用例）。
 
 | 平台 | 工具链 | 构建 | `ctest` |
 |---|---|---|---|
-| Linux（WSL Ubuntu） | CMake 4.2.3、GCC 15.2、GLib 2.88、SQLite 3.46、Qt 6.10.2 | CLI/GUI 全部目标通过 | 各 **11/11** |
-| Windows 11 x64 | MSYS2 MINGW64、CMake 4.5、GCC 16.2、GLib 2.90.1、SQLite 3.54.1 | 待 M1 收尾一次性复跑 | 上次（9 项时）各 **9/9**，29/49 目标 |
+| Linux（WSL Ubuntu） | CMake 4.2.3、GCC 15.2、GLib 2.88、SQLite 3.46、Qt 6.10.2 | CLI/GUI 全部目标通过，0 warning | 各 **11/11** |
+| Windows 11 x64 | MSYS2 MINGW64、CMake 4.5、GCC 16.2、GLib 2.90.1、SQLite 3.54.1 | 35 目标 / 59 目标，0 warning | 各 **11/11** |
 
-用例构成：`core/rh-err` 1、`core/store` 9、`core/path` 4、`core/str` 8、`core/records` 5、`core/platform` 4、`core/library` 2、`core/classify` 2、`core/import` 2、`core/no-gui-linkage` 1、`tools/make-ico` 1。
+用例构成：`core/rh-err` 1、`core/store` 10、`core/path` 4、`core/str` 8、`core/records` 5、`core/platform` 4、`core/library` 2、`core/classify` 2、`core/import` 2、`core/no-gui-linkage` 1、`tools/make-ico` 1（合计 40）。
 
-Windows 验证节奏：M1 期间不再逐模块手动跑，攒到 M1 收尾一次性复跑，清单见仓库 README 的验证命令一节。
+**M1 验收逐条对照**：
 
-未做：Windows 侧 `dumpbin` 断言仍未执行（同 M0 口径，留到 M5）；`library`/`classify`/`import` 预扫描尚在实现中，M1 未结项。
+| 验收项（本节 M1 行） | 状态 | 说明 |
+|---|---|---|
+| 101 个平台、5 段规则全部解析且媒体类型识别有单测 | 已完成 | `core/platform` 4 用例；媒体类型在 `core/classify`/`core/import` 覆盖 |
+| `store_*` 的 CRUD、`dir_path` UNIQUE、级联删除有测试 | 已完成 | `core/store` 10 用例，含 UNIQUE 冲突拒绝与级联清理 |
+| `user_version` 高于程序版本时只读拒绝写入 | 已完成 | `store_open` 只读打开 + 全部写接口返回 `RH_ERR_SCHEMA_TOO_NEW` |
+| `dpkg -i` 与解压 zip 后 `rom-hamster --version` 可运行 | **未完成** | 尚未做 deb 骨架与 Windows zip 骨架 |
+| `lintian` 无 error | **未完成** | 依赖上一项 |
+
+结论：**M1 未结项**。核心模块部分已齐，缺打包验收两项。Windows 的 `dumpbin` 断言仍留到 M5，不计为已通过。
 
 ### 14.1 M4 性能验收（量化）
 

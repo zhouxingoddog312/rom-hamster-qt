@@ -349,6 +349,29 @@ static void test_read_only_rejects_writes(void)
     close_temp_store(store, dir, path);
 }
 
+static void test_dir_path_unique(void)
+{
+    gchar *dir = NULL, *path = NULL;
+    RhStore *store = open_temp_store(&dir, &path);
+
+    RhGame *first = make_game("uniq0001", "gb", "Tetris");
+    g_assert_cmpint(store_game_insert(store, first, NULL, NULL, NULL), ==, RH_OK);
+
+    /* dir_path 有 UNIQUE 约束：同目录第二条必须在写入时被拒绝 */
+    RhGame *second = make_game("uniq0002", "gb", "Tetris");
+    g_test_expect_message("romham/store", G_LOG_LEVEL_WARNING, "*写 games 失败*");
+    g_assert_cmpint(store_game_insert(store, second, NULL, NULL, NULL), ==, RH_ERR_DB);
+    g_test_assert_expected_messages();
+
+    RhErr err = RH_OK;
+    RhGameFilter filter = { 0 };
+    g_assert_cmpint(store_games_count(store, &filter, &err), ==, 1);
+
+    rh_game_free(first);
+    rh_game_free(second);
+    close_temp_store(store, dir, path);
+}
+
 static void test_jobs(void)
 {
     gchar *dir = NULL, *path = NULL;
@@ -404,6 +427,7 @@ int main(int argc, char **argv)
     g_test_add_func("/store/filter-list-count", test_filter_list_and_count);
     g_test_add_func("/store/transaction-rollback", test_transaction_rollback);
     g_test_add_func("/store/read-only-rejects-writes", test_read_only_rejects_writes);
+    g_test_add_func("/store/dir-path-unique", test_dir_path_unique);
     g_test_add_func("/store/jobs", test_jobs);
     return g_test_run();
 }
