@@ -978,10 +978,10 @@ CI 入口是 `ci/build-matrix.sh`：在 Linux 上跑 `linux-cli`/`linux-gui` 两
 
 | 平台 | 工具链 | CLI 预设 | GUI 预设 | `ctest` |
 |---|---|---|---|---|
-| Linux（WSL Ubuntu） | CMake 4.2.3、GCC 15.2、GLib 2.88、SQLite 3.46、Qt 6.10.2 | 27 目标 | 45 目标 | 各 **8/8** |
-| Windows 11 x64（MSYS2 MINGW64） | CMake 4.5、GCC 16.2、GLib 2.90.1、SQLite 3.54.1 | 26 目标 | 44 目标 | 各 **8/8** |
+| Linux（WSL Ubuntu） | CMake 4.2.3、GCC 15.2、GLib 2.88、SQLite 3.46、Qt 6.10.2 | 27 目标 | 45 目标 | 各 **9/9** |
+| Windows 11 x64（MSYS2 MINGW64） | CMake 4.5、GCC 16.2、GLib 2.90.1、SQLite 3.54.1 | 29 目标 | 49 目标 | 各 **9/9** |
 
-用例构成：`core/rh-err` 1、`core/store` 9、`core/path` 4、`core/str` 8、`core/records` 5、`core/platform` 4、`core/no-gui-linkage` 1、`tools/make-ico` 1。Windows 侧同样在含中文的项目路径下通过，`core/path` 覆盖了 UTF-8 入口。
+用例构成：`core/rh-err` 1、`core/store` 9、`core/path` 4、`core/str` 8、`core/records` 5、`core/platform` 4、`core/library` 2、`core/no-gui-linkage` 1、`tools/make-ico` 1。Windows 侧同样在含中文的项目路径下通过，`core/path` 覆盖了 UTF-8 入口。
 
 **仍未做**：`dumpbin /dependents` 对 Windows 版 `libromham` 的 Qt 符号断言尚未执行（`core/no-gui-linkage` 在 Windows 跳过了 `ldd`），按 §8.4 安排到 M5 打包阶段补做。不要把这一条算作已通过。
 
@@ -1264,14 +1264,16 @@ ROM_ROOT = /home/zhoux/roms
 
 **M1 进度（2026-11-17）**
 
-已完成并提交：`rh-str`（8 用例）、`rh-records`（5 用例）、`store`（9 用例，含事务、只读拒写、作业）、`platform`（4 用例，101 条规则全解析、复合后缀、媒体/归档查询）。
+已完成并提交：`rh-str`（8 用例）、`rh-records`（5 用例）、`store`（9 用例，含事务、只读拒写、作业）、`platform`（4 用例，101 条规则全解析、复合后缀、媒体/归档查询）、`library`（2 用例，gamelist 与 Pegasus 清单）。
 
 | 平台 | 工具链 | CLI 预设 | GUI 预设 | `ctest` |
 |---|---|---|---|---|
-| Linux（WSL Ubuntu） | CMake 4.2.3、GCC 15.2、GLib 2.88、SQLite 3.46、Qt 6.10.2 | 27 目标 | 45 目标 | 各 **8/8** |
-| Windows 11 x64 | MSYS2 MINGW64、CMake 4.5、GCC 16.2、GLib 2.90.1、SQLite 3.54.1 | 26 目标 | 44 目标（含 `rom-hamster-gui.exe`） | 各 **8/8**；`core/platform` 用例数与 Linux 一致 |
+| Linux（WSL Ubuntu） | CMake 4.2.3、GCC 15.2、GLib 2.88、SQLite 3.46、Qt 6.10.2 | 27 目标 | 45 目标 | 各 **9/9** |
+| Windows 11 x64 | MSYS2 MINGW64、CMake 4.5、GCC 16.2、GLib 2.90.1、SQLite 3.54.1 | 29 目标 | 49 目标（含 `rom-hamster-gui.exe`） | 各 **9/9**；`core/library` 用例数与 Linux 一致 |
 
-用例构成：`core/rh-err` 1、`core/store` 9、`core/path` 4、`core/str` 8、`core/records` 5、`core/platform` 4、`core/no-gui-linkage` 1、`tools/make-ico` 1。
+用例构成：`core/rh-err` 1、`core/store` 9、`core/path` 4、`core/str` 8、`core/records` 5、`core/platform` 4、`core/library` 2、`core/no-gui-linkage` 1、`tools/make-ico` 1。
+
+Windows 验证节奏：M1 期间不再逐模块手动跑，攒到 M1 收尾一次性复跑，清单见仓库 README 的验证命令一节。
 
 未做：Windows 侧 `dumpbin` 断言仍未执行（同 M0 口径，留到 M5）；`library`/`classify`/`import` 预扫描尚在实现中，M1 未结项。
 
