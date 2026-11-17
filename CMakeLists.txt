@@ -219,12 +219,35 @@ include(GNUInstallDirs)
 
 install(TARGETS rom-hamster RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
+# 核心库：与系统库目录隔离，避免与发行版 Qt/其他库冲突（§9.1）
+install(TARGETS romham
+    LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}/rom-hamster"
+        NAMELINK_SKIP
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+set_target_properties(rom-hamster PROPERTIES
+    INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}/rom-hamster")
+
 # 出厂平台规则（只读，见 §10.2 第 2 层）
 install(FILES data/platforms.conf
     DESTINATION "${CMAKE_INSTALL_DATADIR}/rom-hamster")
 
+# /etc 下的系统配置与规则副本（conffile，§9.2）
+install(FILES data/platforms.conf
+    DESTINATION "${CMAKE_INSTALL_SYSCONFDIR}/rom-hamster")
+install(FILES data/rom-hamster.conf.template
+    DESTINATION "${CMAKE_INSTALL_SYSCONFDIR}/rom-hamster"
+    RENAME rom-hamster.conf)
+
+install(FILES data/rom-hamster.1
+    DESTINATION "${CMAKE_INSTALL_MANDIR}/man1")
+
+install(FILES LICENSE
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/rom-hamster")
+
 if(RH_GUI)
     install(TARGETS rom-hamster-gui RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    set_target_properties(rom-hamster-gui PROPERTIES
+        INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}/rom-hamster;$ORIGIN/../lib/rom-hamster/qt6")
 
     # 素材是 Qt 工程布局；安装时映射成 FDO hicolor，保证桌面能取到图标
     foreach(size 16 32 48 256)
@@ -235,4 +258,9 @@ if(RH_GUI)
     install(FILES "resources/icons/rom-hamster.svg"
         DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps"
         RENAME rom-hamster.svg)
+
+    install(FILES data/io.github.goddog312.RomHamster.desktop
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
+    install(FILES data/io.github.goddog312.RomHamster.metainfo.xml
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/metainfo")
 endif()

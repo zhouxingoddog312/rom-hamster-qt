@@ -1,0 +1,4 @@
+usr/bin/rom-hamster
+usr/lib/*/rom-hamster/*
+etc/rom-hamster/*
+usr/share/man/man1/rom-hamster.1

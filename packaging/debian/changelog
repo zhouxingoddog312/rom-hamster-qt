@@ -1,0 +1,6 @@
+rom-hamster (0.1.0) unstable; urgency=medium
+
+  * 首个可安装包：CLI、核心库、/etc 配置与平台规则、man page。
+  * 数据包提供只读出厂规则与前端模板。
+
+ -- zhouxingoddog312 <zhouxingoddog312@users.noreply.github.com>  Tue, 17 Nov 2026 10:00:00 +0800

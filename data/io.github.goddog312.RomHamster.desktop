@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=ROM Hamster
+GenericName=ROM Library Manager
+Comment=Manage a local ROM library: import, classify, dedupe and export
+Exec=rom-hamster-gui
+Icon=rom-hamster
+Terminal=false
+Categories=Utility;
+Keywords=rom;emulator;library;dat;
+StartupWMClass=rom-hamster-gui

@@ -1280,8 +1280,8 @@ ROM_ROOT = /home/zhoux/roms
 | 101 个平台、5 段规则全部解析且媒体类型识别有单测 | 已完成 | `core/platform` 4 用例；媒体类型在 `core/classify`/`core/import` 覆盖 |
 | `store_*` 的 CRUD、`dir_path` UNIQUE、级联删除有测试 | 已完成 | `core/store` 10 用例，含 UNIQUE 冲突拒绝与级联清理 |
 | `user_version` 高于程序版本时只读拒绝写入 | 已完成 | `store_open` 只读打开 + 全部写接口返回 `RH_ERR_SCHEMA_TOO_NEW` |
-| `dpkg -i` 与解压 zip 后 `rom-hamster --version` 可运行 | **未完成** | 尚未做 deb 骨架与 Windows zip 骨架 |
-| `lintian` 无 error | **未完成** | 依赖上一项 |
+| `dpkg -i` 与解压 zip 后 `rom-hamster --version` 可运行 | 部分完成 | deb 已可安装并运行（`rom-hamster` + `rom-hamster-data` 两包；GUI 包待 Qt 部署接入）；zip 组装脚本已就绪，待 Windows 侧实跑 |
+| `lintian` 无 error | 满足（deb 两包） | `lintian` 仅一条 warning（私有目录库的 ldconfig trigger），无 error |
 
 结论：**M1 未结项**。核心模块部分已齐，缺打包验收两项。Windows 的 `dumpbin` 断言仍留到 M5，不计为已通过。
 

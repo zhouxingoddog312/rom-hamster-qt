@@ -1,0 +1,13 @@
+# rom-hamster 配置模板（安装到 /etc/rom-hamster/rom-hamster.conf）
+# 完整键表见 ARCHITECTURE.md §10；实际生效值由五层合并决定。
+
+# 库文件路径；留空表示使用 <ROM_ROOT>/romhamster.db
+#store_path =
+
+# 语言；留空跟随系统
+#lang =
+
+# GUI 启动时检查新版本（仅提示，不下载不安装）
+update_check = true
+#update_check_url = https://example.invalid/rom-hamster/latest.json
+update_check_interval_hours = 24

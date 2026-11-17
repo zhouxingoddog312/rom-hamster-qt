@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.goddog312.RomHamster</id>
+  <name>ROM Hamster</name>
+  <summary>Manage a local ROM library</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>
+      ROM Hamster 组织本地 ROM 收藏：导入与分类、按平台与标签检索、DAT 校验、
+      导出 EmulationStation / ES-DE / Pegasus 清单。程序不下载 ROM，也不做格式转换。
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.goddog312.RomHamster.desktop</launchable>
+  <url type="homepage">https://gitee.com/goddog312/rom-hamster-qt</url>
+  <categories>
+    <category>Utility</category>
+  </categories>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-11-17"/>
+  </releases>
+</component>

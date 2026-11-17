@@ -1,0 +1,35 @@
+Source: rom-hamster
+Section: utils
+Priority: optional
+Maintainer: zhouxingoddog312 <zhouxingoddog312@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13),
+               cmake (>= 3.22),
+               ninja-build,
+               pkg-config,
+               libglib2.0-dev (>= 2.66),
+               libsqlite3-dev (>= 3.35),
+               libarchive-dev (>= 3.4),
+               libxml2-dev (>= 2.9),
+               zlib1g-dev
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+Homepage: https://gitee.com/goddog312/rom-hamster-qt
+
+Package: rom-hamster
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: ROM library manager (command line)
+ Import, classify and query a local ROM library kept in a single SQLite file.
+ The command line front end is fully scriptable and runs without a display.
+ .
+ This package contains the CLI, the shared core library and the man page.
+
+Package: rom-hamster-data
+Architecture: all
+Depends: ${misc:Depends}
+Description: platform rules for rom-hamster
+ Factory defaults for rom-hamster: platform rule table, front-end templates and
+ the configuration template. Files here are read only.
+
+# 说明：§9.1 的 rom-hamster-gui 包（自带 Qt 6.8 运行库）待 Qt 部署接入后再加，
+# 现在打 GUI 包会变成依赖发行版 Qt，与本项目的交付口径冲突。

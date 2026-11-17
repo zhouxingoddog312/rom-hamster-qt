@@ -1,5 +1,7 @@
 # 构建产物
 /build/
+/dist/
+/.cache/
 /build-*/
 /out/
 /dist/

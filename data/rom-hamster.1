@@ -1,0 +1,26 @@
+.TH ROM-HAMSTER 1 "2026-11-17" "rom-hamster 0.1.0" "User Commands"
+.SH NAME
+rom-hamster \- manage a local ROM library
+.SH SYNOPSIS
+.B rom-hamster
+[\fIOPTION\fR...]
+.SH DESCRIPTION
+.B rom-hamster
+imports, classifies and queries a local ROM library stored in a single SQLite
+file. It does not download ROMs and does not convert ROM formats.
+.SH OPTIONS
+.TP
+.B \-\-version
+Print the program version and exit.
+.TP
+.B \-\-help
+Print usage information and exit.
+.SH FILES
+.TP
+.I /etc/rom-hamster/rom-hamster.conf
+System-wide configuration.
+.TP
+.I /usr/share/rom-hamster/platforms.conf
+Factory platform rules (read only).
+.SH SEE ALSO
+.BR rom-hamster-gui (1)
