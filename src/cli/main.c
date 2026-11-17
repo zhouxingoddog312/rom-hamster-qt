@@ -1,5 +1,6 @@
 #include <glib.h>
 
+#include "rh-path.h"
 #include "rh-version.h"
 
 static gboolean opt_version = FALSE;
@@ -7,6 +8,14 @@ static gchar **opt_rest = NULL;
 
 int main(int argc, char **argv)
 {
+    /* Windows 的 argv 是 ANSI/GBK；GLib 与后续路径处理都要求 UTF-8（§15）。
+     * 必须在任何解析之前统一转换，否则含中文的路径参数会出错。 */
+    for (int i = 0; i < argc; i++) {
+        char *utf8 = rh_path_utf8_from_native(argv[i]);
+        if (utf8 != NULL)
+            argv[i] = utf8;
+    }
+
     GOptionEntry entries[] = {
         { "version", 'V', 0, G_OPTION_ARG_NONE, &opt_version,
           "显示版本信息后退出", NULL },

@@ -53,6 +53,7 @@ configure_file(
 add_library(romham SHARED
     src/core/rh-err.c
     src/core/rh-ctx.c
+    src/core/rh-path.c
     src/core/store.c
     src/core/store-schema.c
 )
@@ -157,6 +158,10 @@ if(BUILD_TESTING)
     add_executable(test-store tests/unit/test-store.c)
     target_link_libraries(test-store PRIVATE romham PkgConfig::GLIB2 PkgConfig::SQLITE3)
     add_test(NAME core/store COMMAND test-store)
+
+    add_executable(test-path tests/unit/test-path.c)
+    target_link_libraries(test-path PRIVATE romham PkgConfig::GLIB2)
+    add_test(NAME core/path COMMAND test-path)
 
     add_test(NAME core/no-gui-linkage
         COMMAND ${CMAKE_COMMAND}

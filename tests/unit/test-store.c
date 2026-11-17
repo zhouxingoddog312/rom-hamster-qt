@@ -2,6 +2,7 @@
 #include <glib/gstdio.h>
 #include <sqlite3.h>
 
+#include "rh-test-main.h"
 #include "store-schema.h"
 #include "store.h"
 
@@ -95,7 +96,7 @@ static void test_invalid_argument(void)
 
 int main(int argc, char **argv)
 {
-    g_test_init(&argc, &argv, NULL);
+    rh_test_init(&argc, &argv);
     g_test_add_func("/store/create-and-reopen", test_create_and_reopen);
     g_test_add_func("/store/newer-schema-read-only", test_newer_schema_is_read_only);
     g_test_add_func("/store/invalid-argument", test_invalid_argument);

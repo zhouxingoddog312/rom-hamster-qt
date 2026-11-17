@@ -12,6 +12,8 @@ typedef struct RhStore RhStore;
 
 /*
  * 打开（必要时创建）库文件。
+ * path 必须是 UTF-8（Windows 下由 rh_path_utf8_from_native 转换 argv 得到），
+ * 因为 sqlite3_open_v2 的路径参数要求 UTF-8。
  * - schema 为空：建 v1 并写入 user_version；
  * - user_version 低于程序：按迁移表升级；
  * - user_version 高于程序：**只读**打开（store_is_read_only() 为 TRUE），

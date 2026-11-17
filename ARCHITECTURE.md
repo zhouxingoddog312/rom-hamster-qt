@@ -1108,6 +1108,7 @@ ROM_ROOT = /home/zhoux/roms
 
 - **配置/缓存目录**：Linux 走 XDG（`XDG_CONFIG_HOME`/`XDG_CACHE_HOME`）；Windows 走 `%APPDATA%`/`%LOCALAPPDATA%`。
 - **长路径**：Windows 超过 `MAX_PATH` 时加 `\\?\` 前缀，并在 UTF-8 与 UTF-16 之间统一转换。
+- **入口编码**：Windows 的 `argv` 与 `getenv` 是 ANSI/GBK；CLI 在解析前、测试在 `g_test_init` 前统一转 UTF-8，否则 GLib 的 `g_setenv`/`g_test_build_filename` 会因非 UTF-8 断言失败（已有 `core/path` 回归用例）。
 - **大小写**：Windows 文件系统大小写不敏感；查重、`dir_path` 唯一性、媒体同名判断在 Windows 侧按不敏感比较。
 - **保留名与结尾字符**：`CON`/`PRN`/`AUX`/`NUL`/`COM1`… 以及结尾点/空格，由 `sanitize_dirname` 在 Windows 侧替换。
 - **编码与换行**：配置、清单、导出文件统一 UTF-8 落盘；写入用 `\n`，读取兼容 CRLF。
@@ -1258,6 +1259,7 @@ CI 能自动化的只有「首屏渲染」与「内存增长」两项（Linux xv
 |---|---|---|---|
 | 配置目录 | XDG | `%APPDATA%`/`%ProgramData%` | `rh-path` |
 | 路径分隔/大小写 | `/`，大小写敏感 | `\`，大小写不敏感 | 内部存 UTF-8 + `/`；比较按平台 |
+| 参数与环境变量编码 | UTF-8 | `argv`/`getenv` 为 ANSI/GBK | 入口处经 `rh_path_utf8_from_native` 转 UTF-8；不得把原生窄字节直接交给 GLib/SQLite |
 | 长路径 | 无 260 限制 | `MAX_PATH` 260 | `\\?\` 前缀 |
 | 保留名/结尾字符 | 无 | `CON`/`PRN`/…、结尾点/空格 | `sanitize_dirname` |
 | 文件锁/原子改名 | `rename` | `MoveFileEx`/`QSaveFile` | `rh-fs` 封装 |

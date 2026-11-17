@@ -1,6 +1,7 @@
 #include <glib.h>
 
 #include "rh-err.h"
+#include "rh-test-main.h"
 
 static void test_err_str(void)
 {
@@ -13,7 +14,7 @@ static void test_err_str(void)
 
 int main(int argc, char **argv)
 {
-    g_test_init(&argc, &argv, NULL);
+    rh_test_init(&argc, &argv);
     g_test_add_func("/err/str", test_err_str);
     return g_test_run();
 }
