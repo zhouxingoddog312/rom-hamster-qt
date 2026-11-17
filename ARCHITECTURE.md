@@ -1312,6 +1312,7 @@ CI 能自动化的只有「首屏渲染」与「内存增长」两项（Linux xv
 | 配置目录 | XDG | `%APPDATA%`/`%ProgramData%` | `rh-path` |
 | 路径分隔/大小写 | `/`，大小写敏感 | `\`，大小写不敏感 | 内部存 UTF-8 + `/`；比较按平台 |
 | 参数与环境变量编码 | UTF-8 | `argv`/`getenv` 为 ANSI/GBK | 入口处经 `rh_path_utf8_from_native` 转 UTF-8；不得把原生窄字节直接交给 GLib/SQLite |
+| CLI 输出编码 | 恒为 UTF-8，不随 locale 转码 | 控制台代码页可能不是 UTF-8 | 输出字节与 locale 无关，有 `cli/version-utf8` 用例（`LC_ALL=C` 下仍须输出 UTF-8 字节）；Windows 侧 CLI 启动时把控制台代码页设为 65001，否则 GLib 会按旧代码页转码、中文变 `?` |
 | 长路径 | 无 260 限制 | `MAX_PATH` 260 | `\\?\` 前缀 |
 | 保留名/结尾字符 | 无 | `CON`/`PRN`/…、结尾点/空格 | `sanitize_dirname` |
 | 文件锁/原子改名 | `rename` | `MoveFileEx`/`QSaveFile` | `rh-fs` 封装 |

@@ -244,6 +244,15 @@ install(FILES data/rom-hamster.1
 install(FILES LICENSE
     DESTINATION "${CMAKE_INSTALL_DATADIR}/rom-hamster")
 
+# CLI 输出编码回归：在 C locale 下仍须是 UTF-8 字节（§15）
+if(UNIX)
+    add_test(NAME cli/version-utf8
+        COMMAND ${CMAKE_COMMAND} -E env LC_ALL=C LANG=C
+                $<TARGET_FILE:rom-hamster> --version)
+    set_tests_properties(cli/version-utf8 PROPERTIES
+        PASS_REGULAR_EXPRESSION "仓库:")
+endif()
+
 if(RH_GUI)
     install(TARGETS rom-hamster-gui RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     set_target_properties(rom-hamster-gui PROPERTIES

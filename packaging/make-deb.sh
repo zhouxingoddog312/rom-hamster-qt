@@ -8,6 +8,12 @@ repo=$(cd "$(dirname "$0")/.." && pwd)
 work=${WORK:-/tmp/rom-hamster-deb}
 dist="$repo/dist"
 
+# 与旧 GTK 版同名的包会互相覆盖：同名 + 同版本，装过就卸不掉（依赖互锁）
+if dpkg -s rom-hamster-gui 2>/dev/null | grep -q 'rom-hamster-gtk'; then
+    echo "警告：系统里装的是旧 GTK 版 rom-hamster 包（Homepage 为 rom-hamster-gtk）。" >&2
+    echo "      请先 sudo dpkg --purge rom-hamster-gui，再安装本次产物。" >&2
+fi
+
 echo "==> 准备构建树：$work"
 rm -rf "$work"
 mkdir -p "$work"
