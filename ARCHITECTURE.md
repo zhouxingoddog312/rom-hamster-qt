@@ -978,10 +978,10 @@ CI 入口是 `ci/build-matrix.sh`：在 Linux 上跑 `linux-cli`/`linux-gui` 两
 
 | 平台 | 工具链 | CLI 预设 | GUI 预设 | `ctest` |
 |---|---|---|---|---|
-| Linux（WSL Ubuntu） | CMake 4.2.3、GCC 15.2、GLib 2.88、SQLite 3.46、Qt 6.10.2 | 全部目标 | 全部目标 | 各 **11/11** |
+| Linux（WSL Ubuntu） | CMake 4.2.3、GCC 15.2、GLib 2.88、SQLite 3.46、Qt 6.10.2 | 全部目标 | 全部目标 | 各 **13/13** |
 | Windows 11 x64（MSYS2 MINGW64） | CMake 4.5、GCC 16.2、GLib 2.90.1、SQLite 3.54.1 | 35 目标 | 59 目标 | 各 **11/11** |
 
-用例构成：`core/rh-err` 1、`core/store` 10、`core/path` 4、`core/str` 8、`core/records` 5、`core/platform` 4、`core/library` 2、`core/classify` 2、`core/import` 2、`core/no-gui-linkage` 1、`tools/make-ico` 1（合计 40 个用例）。Windows 侧同样在含中文的项目路径下通过，`core/path` 覆盖了 UTF-8 入口；两侧构建均为 **0 warning**。Windows 侧同样在含中文的项目路径下通过，`core/path` 覆盖了 UTF-8 入口。
+用例构成：`core/rh-err` 1、`core/store` 10、`core/path` 4、`core/str` 8、`core/records` 5、`core/platform` 4、`core/library` 2、`core/classify` 2、`core/import` 2、`core/no-gui-linkage` 1、`tools/make-ico` 1（合计 40 个用例）；Linux 另有 `cli/version-utf8`、`cli/version-utf8-tty` 各 1（合计 42，Windows 无 `script` 故仍为 40）。Windows 侧同样在含中文的项目路径下通过，`core/path` 覆盖了 UTF-8 入口；两侧构建均为 **0 warning**。Windows 侧同样在含中文的项目路径下通过，`core/path` 覆盖了 UTF-8 入口。
 
 **仍未做**：`dumpbin /dependents` 对 Windows 版 `libromham` 的 Qt 符号断言尚未执行（`core/no-gui-linkage` 在 Windows 跳过了 `ldd`），按 §8.4 安排到 M5 打包阶段补做。不要把这一条算作已通过。
 
@@ -1268,10 +1268,10 @@ ROM_ROOT = /home/zhoux/roms
 
 | 平台 | 工具链 | 构建 | `ctest` |
 |---|---|---|---|
-| Linux（WSL Ubuntu） | CMake 4.2.3、GCC 15.2、GLib 2.88、SQLite 3.46、Qt 6.10.2 | CLI/GUI 全部目标通过，0 warning | 各 **11/11** |
+| Linux（WSL Ubuntu） | CMake 4.2.3、GCC 15.2、GLib 2.88、SQLite 3.46、Qt 6.10.2 | CLI/GUI 全部目标通过，0 warning | 各 **13/13** |
 | Windows 11 x64 | MSYS2 MINGW64、CMake 4.5、GCC 16.2、GLib 2.90.1、SQLite 3.54.1 | 35 目标 / 59 目标，0 warning | 各 **11/11** |
 
-用例构成：`core/rh-err` 1、`core/store` 10、`core/path` 4、`core/str` 8、`core/records` 5、`core/platform` 4、`core/library` 2、`core/classify` 2、`core/import` 2、`core/no-gui-linkage` 1、`tools/make-ico` 1（合计 40）。
+用例构成：`core/rh-err` 1、`core/store` 10、`core/path` 4、`core/str` 8、`core/records` 5、`core/platform` 4、`core/library` 2、`core/classify` 2、`core/import` 2、`core/no-gui-linkage` 1、`tools/make-ico` 1（合计 40；Linux 另有 `cli/version-utf8`、`cli/version-utf8-tty` 各 1，合计 42）。
 
 **M1 验收逐条对照**：
 
@@ -1312,7 +1312,7 @@ CI 能自动化的只有「首屏渲染」与「内存增长」两项（Linux xv
 | 配置目录 | XDG | `%APPDATA%`/`%ProgramData%` | `rh-path` |
 | 路径分隔/大小写 | `/`，大小写敏感 | `\`，大小写不敏感 | 内部存 UTF-8 + `/`；比较按平台 |
 | 参数与环境变量编码 | UTF-8 | `argv`/`getenv` 为 ANSI/GBK | 入口处经 `rh_path_utf8_from_native` 转 UTF-8；不得把原生窄字节直接交给 GLib/SQLite |
-| CLI 输出编码 | 恒为 UTF-8，不随 locale 转码 | 控制台代码页可能不是 UTF-8 | 输出字节与 locale 无关，有 `cli/version-utf8` 用例（`LC_ALL=C` 下仍须输出 UTF-8 字节）；Windows 侧 CLI 启动时把控制台代码页设为 65001，否则 GLib 会按旧代码页转码、中文变 `?` |
+| CLI 输出编码 | 恒为 UTF-8，不随 locale 转码 | 控制台代码页可能不是 UTF-8 | 输出字节与 locale 无关。`g_print`/`g_printerr` 在流是终端时按当前 locale 字符集转码（`glib/gprint.c` 的 `g_fputs`），进程未 `setlocale()` 就停在 `C`/ASCII，中文逐字变 `?`；故 CLI 直接写 UTF-8 字节。用例：`cli/version-utf8`（管道）与 `cli/version-utf8-tty`（`script -qc` 伪终端）。Windows 侧仍把控制台代码页设为 65001，与直接写字节自洽 |
 | 长路径 | 无 260 限制 | `MAX_PATH` 260 | `\\?\` 前缀 |
 | 保留名/结尾字符 | 无 | `CON`/`PRN`/…、结尾点/空格 | `sanitize_dirname` |
 | 文件锁/原子改名 | `rename` | `MoveFileEx`/`QSaveFile` | `rh-fs` 封装 |

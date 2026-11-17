@@ -1,3 +1,5 @@
+#include <stdio.h>
+
 #include <glib.h>
 
 #include "rh-path.h"
@@ -10,11 +12,27 @@
 static gboolean opt_version = FALSE;
 static gchar **opt_rest = NULL;
 
+/* g_print()/g_printerr() end up in GLib's g_fputs() (glib/gprint.c), which
+ * converts UTF-8 to the charset of the *current* locale whenever the stream
+ * is a terminal, falling back to '?' for characters that charset cannot
+ * represent. Nothing in this program calls setlocale(), so the process stays
+ * in the "C" locale (ASCII) and every CJK character becomes '?'. Piped output
+ * skips that branch and stays UTF-8, i.e. the same command printed different
+ * bytes depending on whether stdout was a terminal.
+ *
+ * The CLI always emits UTF-8 (ARCHITECTURE.md 15), so write the bytes as-is. */
+static void print_utf8(FILE *stream, const char *text)
+{
+    fputs(text, stream);
+    fflush(stream);
+}
+
 int main(int argc, char **argv)
 {
 #ifdef _WIN32
-    /* Windows 控制台默认代码页（437/936）无法表示全部中文，GLib 输出时
-     * 会按代码页转码并把不可映射字符变成 '?'。先把控制台切成 UTF-8。 */
+    /* Raw UTF-8 bytes are written below, so the console must decode them as
+     * UTF-8. Without this the console uses its legacy code page (437/936) and
+     * shows mojibake, while redirected output would still be correct UTF-8. */
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
 #endif
@@ -40,7 +58,7 @@ int main(int argc, char **argv)
 
     GError *error = NULL;
     if (!g_option_context_parse(option_ctx, &argc, &argv, &error)) {
-        g_printerr("%s: %s\n", RH_PROJECT_NAME, error->message);
+        fprintf(stderr, "%s: %s\n", RH_PROJECT_NAME, error->message);
         g_error_free(error);
         g_option_context_free(option_ctx);
         return 2;
@@ -48,15 +66,14 @@ int main(int argc, char **argv)
     g_option_context_free(option_ctx);
 
     if (opt_version) {
-        /* 输出恒为 UTF-8，不随 locale 转码；终端能否正确显示由终端编码决定（§15） */
-        g_print("%s %s\n", RH_PROJECT_NAME, RH_VERSION);
-        g_print("仓库: %s\n", RH_REPO_URL);
-        g_print("问题反馈: %s\n", RH_ISSUES_URL);
+        print_utf8(stdout, RH_PROJECT_NAME " " RH_VERSION "\n");
+        print_utf8(stdout, "仓库: " RH_REPO_URL "\n");
+        print_utf8(stdout, "问题反馈: " RH_ISSUES_URL "\n");
         return 0;
     }
 
     /* M0 骨架：子命令在后续里程碑实现 */
-    g_printerr("%s %s — M0 骨架，子命令尚未实现；用 --version 查看版本。\n",
-               RH_PROJECT_NAME, RH_VERSION);
+    fprintf(stderr, "%s %s — M0 骨架，子命令尚未实现；用 --version 查看版本。\n",
+            RH_PROJECT_NAME, RH_VERSION);
     return 1;
 }

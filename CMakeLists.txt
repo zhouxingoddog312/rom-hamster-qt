@@ -251,6 +251,18 @@ if(UNIX)
                 $<TARGET_FILE:rom-hamster> --version)
     set_tests_properties(cli/version-utf8 PROPERTIES
         PASS_REGULAR_EXPRESSION "仓库:")
+
+    # 伪终端回归：GLib 的 g_print/g_printerr 只在 stdout 是终端时才转码
+    # （glib/gprint.c 的 g_fputs），只测管道会漏掉「TTY 下中文变 ?」。
+    find_program(RH_SCRIPT_EXECUTABLE script)
+    if(RH_SCRIPT_EXECUTABLE)
+        add_test(NAME cli/version-utf8-tty
+            COMMAND ${CMAKE_COMMAND} -E env LC_ALL=C LANG=C
+                    ${RH_SCRIPT_EXECUTABLE} -q -c
+                    "$<TARGET_FILE:rom-hamster> --version" /dev/null)
+        set_tests_properties(cli/version-utf8-tty PROPERTIES
+            PASS_REGULAR_EXPRESSION "仓库:")
+    endif()
 endif()
 
 if(RH_GUI)
