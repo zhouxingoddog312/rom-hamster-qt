@@ -94,11 +94,316 @@ static void test_invalid_argument(void)
     g_assert_cmpint(err, ==, RH_ERR_INVALID);
 }
 
+/* --------------------------------------------------------------------------
+ * CRUD 与事务
+ * ------------------------------------------------------------------------ */
+
+static RhStore *open_temp_store(gchar **out_dir, gchar **out_path)
+{
+    gchar *dir = g_dir_make_tmp("romham-store-XXXXXX", NULL);
+    g_assert_nonnull(dir);
+    gchar *path = g_build_filename(dir, "romhamster.db", NULL);
+
+    RhErr err = RH_ERR_INVALID;
+    RhStore *store = store_open(path, &err);
+    g_assert_cmpint(err, ==, RH_OK);
+    g_assert_nonnull(store);
+
+    *out_dir = dir;
+    *out_path = path;
+    return store;
+}
+
+static void close_temp_store(RhStore *store, gchar *dir, gchar *path)
+{
+    store_close(store);
+    remove_db_files(path);
+    g_rmdir(dir);
+    g_free(path);
+    g_free(dir);
+}
+
+static RhGame *make_game(const char *id, const char *platform, const char *name)
+{
+    RhGame *game = rh_game_new();
+    game->id = g_strdup(id);
+    game->platform = g_strdup(platform);
+    game->name = g_strdup(name);
+    game->game_main_name = g_strdup(name);
+    game->dir_path = g_strdup_printf("%s/%s", platform, name);
+    return game;
+}
+
+static void test_game_crud(void)
+{
+    gchar *dir = NULL, *path = NULL;
+    RhStore *store = open_temp_store(&dir, &path);
+
+    RhGame *game = make_game("abc12345", "gb", "Tetris");
+    game->year = 1989;
+    game->players = 2;
+    game->rating = 4.5;
+    game->region = g_strdup("World");
+    game->is_multi_disc = FALSE;
+
+    GPtrArray *roms = g_ptr_array_new_with_free_func(rh_rom_file_free_func);
+    RhRomFile *rom = rh_rom_file_new();
+    rom->filename = g_strdup("Tetris (World).gb");
+    rom->has_size = TRUE;
+    rom->size = 32768;
+    rom->crc32 = g_strdup("deadbeef");
+    g_ptr_array_add(roms, rom);
+
+    GPtrArray *media = g_ptr_array_new_with_free_func(rh_media_file_free_func);
+    RhMediaFile *cover = rh_media_file_new();
+    cover->kind = g_strdup("covers");
+    cover->filename = g_strdup("cover.png");
+    g_ptr_array_add(media, cover);
+
+    GPtrArray *tags = g_ptr_array_new_with_free_func(g_free);
+    g_ptr_array_add(tags, g_strdup("puzzle"));
+    g_ptr_array_add(tags, g_strdup("classic"));
+
+    g_assert_cmpint(store_game_insert(store, game, roms, media, tags), ==, RH_OK);
+
+    RhErr err = RH_ERR_INVALID;
+    RhGame *loaded = store_game_get(store, "abc12345", &err);
+    g_assert_cmpint(err, ==, RH_OK);
+    g_assert_nonnull(loaded);
+    g_assert_cmpstr(loaded->name, ==, "Tetris");
+    g_assert_cmpint(loaded->year, ==, 1989);
+    g_assert_cmpint(loaded->players, ==, 2);
+    g_assert_cmpfloat(loaded->rating, ==, 4.5);
+    g_assert_cmpstr(loaded->rom_format, ==, "raw");
+    g_assert_cmpstr(loaded->rom_status, ==, "unknown");
+    g_assert_nonnull(loaded->created_at);
+
+    GPtrArray *loaded_roms = store_roms_for_game(store, "abc12345", &err);
+    g_assert_cmpuint(loaded_roms->len, ==, 1);
+    RhRomFile *r0 = g_ptr_array_index(loaded_roms, 0);
+    g_assert_cmpstr(r0->filename, ==, "Tetris (World).gb");
+    g_assert_true(r0->has_size);
+    g_assert_cmpint(r0->size, ==, 32768);
+
+    GPtrArray *covers = store_media_for_game(store, "abc12345", "covers", &err);
+    g_assert_cmpuint(covers->len, ==, 1);
+    GPtrArray *videos = store_media_for_game(store, "abc12345", "videos", &err);
+    g_assert_cmpuint(videos->len, ==, 0);
+    GPtrArray *bogus = store_media_for_game(store, "abc12345", "bogus", &err);
+    g_assert_cmpint(err, ==, RH_ERR_INVALID);
+    g_assert_cmpuint(bogus->len, ==, 0);
+    g_ptr_array_free(covers, TRUE);
+    g_ptr_array_free(videos, TRUE);
+    g_ptr_array_free(bogus, TRUE);
+
+    GPtrArray *loaded_tags = store_tags_for_game(store, "abc12345", &err);
+    g_assert_cmpuint(loaded_tags->len, ==, 2);
+    g_assert_cmpstr(g_ptr_array_index(loaded_tags, 0), ==, "classic");
+    g_assert_cmpstr(g_ptr_array_index(loaded_tags, 1), ==, "puzzle");
+
+    /* 更新元数据 */
+    loaded->name = g_strdup("Tetris (rev A)");
+    loaded->rom_status = g_strdup("good");
+    g_assert_cmpint(store_game_update(store, loaded), ==, RH_OK);
+    RhGame *reloaded = store_game_get(store, "abc12345", &err);
+    g_assert_cmpstr(reloaded->name, ==, "Tetris (rev A)");
+    g_assert_cmpstr(reloaded->rom_status, ==, "good");
+
+    /* 删除要级联清掉 roms / media / game_tags */
+    g_assert_cmpint(store_game_delete(store, "abc12345"), ==, RH_OK);
+    g_assert_null(store_game_get(store, "abc12345", &err));
+    g_assert_cmpint(err, ==, RH_OK);
+    GPtrArray *gone_roms = store_roms_for_game(store, "abc12345", &err);
+    GPtrArray *gone_media = store_media_for_game(store, "abc12345", NULL, &err);
+    GPtrArray *gone_tags = store_tags_for_game(store, "abc12345", &err);
+    g_assert_cmpuint(gone_roms->len, ==, 0);
+    g_assert_cmpuint(gone_media->len, ==, 0);
+    g_assert_cmpuint(gone_tags->len, ==, 0);
+    g_ptr_array_free(gone_roms, TRUE);
+    g_ptr_array_free(gone_media, TRUE);
+    g_ptr_array_free(gone_tags, TRUE);
+
+    rh_game_free(loaded);
+    rh_game_free(reloaded);
+    rh_game_free(game);
+    g_ptr_array_free(roms, TRUE);
+    g_ptr_array_free(media, TRUE);
+    g_ptr_array_free(tags, TRUE);
+    close_temp_store(store, dir, path);
+}
+
+static void test_game_invalid(void)
+{
+    gchar *dir = NULL, *path = NULL;
+    RhStore *store = open_temp_store(&dir, &path);
+
+    RhGame *game = make_game("bad00001", "gb", "NoDir");
+    g_free(game->dir_path);
+    game->dir_path = NULL;
+
+    g_assert_cmpint(store_game_insert(store, game, NULL, NULL, NULL), ==, RH_ERR_INVALID);
+    g_assert_cmpint(store_game_insert(store, NULL, NULL, NULL, NULL), ==, RH_ERR_INVALID);
+    g_assert_cmpint(store_game_delete(store, NULL), ==, RH_ERR_INVALID);
+    g_assert_cmpint(store_game_update(store, NULL), ==, RH_ERR_INVALID);
+
+    rh_game_free(game);
+    close_temp_store(store, dir, path);
+}
+
+static void test_filter_list_and_count(void)
+{
+    gchar *dir = NULL, *path = NULL;
+    RhStore *store = open_temp_store(&dir, &path);
+
+    const char *names[] = { "Zelda", "Metroid", "Tetris" };
+    const char *platforms[] = { "gb", "gb", "nes" };
+    for (int i = 0; i < 3; i++) {
+        gchar *id = g_strdup_printf("id00000%d", i);
+        RhGame *game = make_game(id, platforms[i], names[i]);
+        game->year = 1990 + i;
+        g_assert_cmpint(store_game_insert(store, game, NULL, NULL, NULL), ==, RH_OK);
+        rh_game_free(game);
+        g_free(id);
+    }
+
+    RhErr err = RH_ERR_INVALID;
+    RhGameFilter filter = { 0 };
+
+    g_assert_cmpint(store_games_count(store, &filter, &err), ==, 3);
+
+    filter.platform = "gb";
+    g_assert_cmpint(store_games_count(store, &filter, &err), ==, 2);
+
+    GPtrArray *list = store_games_list(store, &filter, &err);
+    g_assert_cmpuint(list->len, ==, 2);
+    g_assert_cmpstr(((RhGame *)g_ptr_array_index(list, 0))->name, ==, "Metroid");
+    g_assert_cmpstr(((RhGame *)g_ptr_array_index(list, 1))->name, ==, "Zelda");
+    g_ptr_array_free(list, TRUE);
+
+    RhGameFilter search = { 0 };
+    search.search = "tet";
+    g_assert_cmpint(store_games_count(store, &search, &err), ==, 1);
+
+    RhGameFilter by_year = { 0 };
+    by_year.order_by = "year";
+    by_year.descending = TRUE;
+    by_year.limit = 1;
+    list = store_games_list(store, &by_year, &err);
+    g_assert_cmpuint(list->len, ==, 1);
+    g_assert_cmpint(((RhGame *)g_ptr_array_index(list, 0))->year, ==, 1992);
+    g_ptr_array_free(list, TRUE);
+
+    close_temp_store(store, dir, path);
+}
+
+static void test_transaction_rollback(void)
+{
+    gchar *dir = NULL, *path = NULL;
+    RhStore *store = open_temp_store(&dir, &path);
+
+    g_assert_cmpint(store_begin(store), ==, RH_OK);
+    RhGame *game = make_game("tx000001", "gb", "Rollback Me");
+    g_assert_cmpint(store_game_insert(store, game, NULL, NULL, NULL), ==, RH_OK);
+    g_assert_cmpint(store_rollback(store), ==, RH_OK);
+
+    RhErr err = RH_OK;
+    RhGameFilter filter = { 0 };
+    g_assert_cmpint(store_games_count(store, &filter, &err), ==, 0);
+
+    /* 已提交的事务可见 */
+    g_assert_cmpint(store_begin(store), ==, RH_OK);
+    g_assert_cmpint(store_game_insert(store, game, NULL, NULL, NULL), ==, RH_OK);
+    g_assert_cmpint(store_commit(store), ==, RH_OK);
+    g_assert_cmpint(store_games_count(store, &filter, &err), ==, 1);
+
+    g_assert_cmpint(store_commit(store), ==, RH_ERR_INVALID);
+    g_assert_cmpint(store_rollback(store), ==, RH_ERR_INVALID);
+
+    rh_game_free(game);
+    close_temp_store(store, dir, path);
+}
+
+static void test_read_only_rejects_writes(void)
+{
+    gchar *dir = NULL, *path = NULL;
+    RhStore *store = open_temp_store(&dir, &path);
+    store_close(store);
+
+    set_user_version(path, RH_SCHEMA_VERSION + 1);
+
+    RhErr err = RH_ERR_INVALID;
+    g_test_expect_message("romham/store", G_LOG_LEVEL_WARNING, "*已只读打开*");
+    store = store_open(path, &err);
+    g_test_assert_expected_messages();
+    g_assert_cmpint(err, ==, RH_OK);
+    g_assert_true(store_is_read_only(store));
+
+    RhGame *game = make_game("ro000001", "gb", "Read Only");
+    g_assert_cmpint(store_game_insert(store, game, NULL, NULL, NULL),
+                    ==, RH_ERR_SCHEMA_TOO_NEW);
+    g_assert_cmpint(store_game_delete(store, "ro000001"), ==, RH_ERR_SCHEMA_TOO_NEW);
+    g_assert_cmpint(store_begin(store), ==, RH_ERR_SCHEMA_TOO_NEW);
+    g_assert_cmpint(store_job_create(store, "import", 1, NULL), ==, RH_ERR_SCHEMA_TOO_NEW);
+
+    rh_game_free(game);
+    close_temp_store(store, dir, path);
+}
+
+static void test_jobs(void)
+{
+    gchar *dir = NULL, *path = NULL;
+    RhStore *store = open_temp_store(&dir, &path);
+
+    gint64 job_id = 0;
+    g_assert_cmpint(store_job_create(store, "import", 10, &job_id), ==, RH_OK);
+    g_assert_cmpint(job_id, >, 0);
+    g_assert_cmpint(store_job_progress(store, job_id, 4), ==, RH_OK);
+    g_assert_cmpint(store_job_finish(store, job_id, NULL), ==, RH_OK);
+
+    gint64 failed_id = 0;
+    g_assert_cmpint(store_job_create(store, "export", 1, &failed_id), ==, RH_OK);
+    g_assert_cmpint(store_job_finish(store, failed_id, "disk full"), ==, RH_OK);
+
+    store_close(store);
+
+    sqlite3 *db = NULL;
+    g_assert_cmpint(sqlite3_open(path, &db), ==, SQLITE_OK);
+    sqlite3_stmt *stmt = NULL;
+    g_assert_cmpint(sqlite3_prepare_v2(db,
+        "SELECT state, done, error FROM jobs WHERE id = ?;", -1, &stmt, NULL),
+        ==, SQLITE_OK);
+    sqlite3_bind_int64(stmt, 1, job_id);
+    g_assert_cmpint(sqlite3_step(stmt), ==, SQLITE_ROW);
+    g_assert_cmpstr((const char *)sqlite3_column_text(stmt, 0), ==, "done");
+    g_assert_cmpint(sqlite3_column_int(stmt, 1), ==, 4);
+    g_assert_true(sqlite3_column_type(stmt, 2) == SQLITE_NULL);
+    sqlite3_finalize(stmt);
+
+    sqlite3_prepare_v2(db, "SELECT state, error FROM jobs WHERE id = ?;", -1, &stmt, NULL);
+    sqlite3_bind_int64(stmt, 1, failed_id);
+    g_assert_cmpint(sqlite3_step(stmt), ==, SQLITE_ROW);
+    g_assert_cmpstr((const char *)sqlite3_column_text(stmt, 0), ==, "failed");
+    g_assert_cmpstr((const char *)sqlite3_column_text(stmt, 1), ==, "disk full");
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+
+    remove_db_files(path);
+    g_rmdir(dir);
+    g_free(path);
+    g_free(dir);
+}
+
 int main(int argc, char **argv)
 {
     rh_test_init(&argc, &argv);
     g_test_add_func("/store/create-and-reopen", test_create_and_reopen);
     g_test_add_func("/store/newer-schema-read-only", test_newer_schema_is_read_only);
     g_test_add_func("/store/invalid-argument", test_invalid_argument);
+    g_test_add_func("/store/game-crud", test_game_crud);
+    g_test_add_func("/store/game-invalid", test_game_invalid);
+    g_test_add_func("/store/filter-list-count", test_filter_list_and_count);
+    g_test_add_func("/store/transaction-rollback", test_transaction_rollback);
+    g_test_add_func("/store/read-only-rejects-writes", test_read_only_rejects_writes);
+    g_test_add_func("/store/jobs", test_jobs);
     return g_test_run();
 }
