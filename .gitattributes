@@ -12,6 +12,12 @@ CMakePresets.json text eol=lf
 *.desktop       text eol=lf
 *.iss           text eol=lf
 
+# Windows 脚本：内容一律 ASCII（PowerShell 5.1 对无 BOM 脚本按 ANSI 解析；
+# gitattributes 只能约束换行，编码靠脚本内 ASCII 约束与评审）
+*.ps1           text eol=crlf
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+
 # 源码与文档
 *.c             text eol=lf
 *.h             text eol=lf
