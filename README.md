@@ -27,7 +27,35 @@ ctest --preset linux-cli
 Windows 侧验证过的路径是 MSYS2「MINGW64」shell + `mingw-w64-x86_64-*` 包（GCC/CMake/Ninja/pkgconf/glib2/sqlite3/libarchive/libxml2/zlib/qt6-base），
 在该 shell 里直接 `cmake --preset windows-cli` 即可；MSVC 2022 + vcpkg 为备选路径，尚未验证。
 
-CI 入口：`ci/build-matrix.sh`（Linux 跑本机两组并补 sanitizer，MSYS2 跑本机两组）。四组已在本机跑通；Gitee Go 流水线待启用。
+CI 入口：`ci/build-matrix.sh`（Linux 跑本机两组并补 sanitizer，MSYS2 跑本机两组），四组已在本机跑通。
+CI 计划走 GitHub Actions（`msys2/setup-msys2` 跑 Windows 两组 + Ubuntu 跑 Linux 两组与 sanitizer），**当前未接**，等代码量上来或需要 PR 门禁时再启用。
+
+## 仓库与同步
+
+| 角色 | 地址 |
+|---|---|
+| 主仓（Gitee） | https://gitee.com/goddog312/rom-hamster-qt |
+| 镜像（GitHub） | https://github.com/zhouxingoddog312/rom-hamster-qt |
+
+主仓是唯一提交入口，GitHub 只做单向镜像，不单独在镜像上提交。
+
+首次配置（本机已配置过，换机器时执行）：
+
+```sh
+git remote add origin git@gitee.com:goddog312/rom-hamster-qt.git
+git remote add github https://github.com/zhouxingoddog312/rom-hamster-qt.git
+```
+
+日常同步（先推 Gitee，再推镜像）：
+
+```sh
+git push origin main --tags
+git push github main --tags
+```
+
+拉取只从主仓：`git pull --ff-only origin main`。
+不用 `git push --mirror`，避免误删镜像侧分支；Gitee 的「镜像」设置可作为备选的纯单向方案，但需要额外配置第三方 token，默认不启用。
+认证由 Git Credential Manager（HTTPS）或 SSH 承担，**任何令牌、密钥都不入库**。
 
 ## 目录
 

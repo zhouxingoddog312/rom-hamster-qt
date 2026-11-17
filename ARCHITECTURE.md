@@ -40,6 +40,7 @@
 | i18n | CLI 用 gettext；GUI 用 Qt Linguist（`.ts`/`.qm`） | §11 |
 | 首启与拖拽 | GUI 启动即弹目录选择；`dragEnterEvent`/`dropEvent` 走同一导入管线，进 M4 | §11 |
 | 里程碑 | M0–M5，双端同等；M3→M4 串行 | §14 |
+| 代码托管 | Gitee 主仓 + GitHub 同名镜像（单向）；CI 计划 GitHub Actions，当前不接 | §8.4 README |
 | 升级 | 三端原地覆盖；启动时 schema 迁移 + 降级防护 | §9.4 |
 | 版本检查 | GUI 启动静默检查；仅提示并打开下载页，不下载不安装 | §11 |
 | 已定项 | 8 项决策与 2 个遗留问题 | §16 |
@@ -971,7 +972,9 @@ pkg-config --modversion glib-2.0; sqlite3 --version; qmake6 -query QT_VERSION; l
 
 CI 入口是 `ci/build-matrix.sh`：在 Linux 上跑 `linux-cli`/`linux-gui` 两个预设并在末尾补一组 `-DRH_SANITIZE=address,undefined`；在 MSYS2(MINGW64) 上跑 `windows-cli`/`windows-gui`。两个平台各跑一次即覆盖四组矩阵。
 
-**当前验证状态（2026-11-17）**：四组已在真机跑通——Linux（GCC + Qt 6.10.2）与 Windows 11（MSYS2 MINGW64、GCC 16.2、Qt 6.12）的 CLI/GUI 两组均构建成功，`ctest` 各 5/5，其中包括在中文项目路径下运行的 `core/path`。Gitee Go 流水线尚未启用，启用后让它调用该脚本即可；在此之前由人工在两个平台的终端执行。
+**当前验证状态（2026-11-17）**：四组已在真机跑通——Linux（GCC + Qt 6.10.2）与 Windows 11（MSYS2 MINGW64、GCC 16.2、Qt 6.12）的 CLI/GUI 两组均构建成功，`ctest` 各 5/5，其中包括在中文项目路径下运行的 `core/path`。
+
+**托管与流水线计划**：Gitee 为主仓（唯一提交入口），GitHub 同名仓库为单向镜像；日常先推主仓再推镜像，步骤见 README「仓库与同步」。CI 计划走 GitHub Actions——Windows 用 `msys2/setup-msys2` 跑 `windows-cli`/`windows-gui`，Linux 组在 Ubuntu 上跑并附 sanitizer，统一调用 `ci/build-matrix.sh` 或等价的预设命令。**当前不接**，等代码量上来或需要 PR 门禁时再启用；在此之前由人工在两个平台的终端执行。
 
 ---
 
