@@ -1105,7 +1105,7 @@ ROM_ROOT = /home/zhoux/roms
 | 层 | 位置 | 谁改 | 性质 |
 |---|---|---|---|
 | 1 | 编译进二进制 | 无人 | 最小集，保证任何配置文件缺失都能启动 |
-| 2 | Linux `/usr/share/rom-hamster/platforms.conf`；Windows `<install>\share\rom-hamster\platforms.conf` | 无人 | `data` 包，只读出厂规则 |
+| 2 | Linux `/usr/share/rom-hamster/platforms.conf`；Windows `<install>\share\rom-hamster\platforms.conf` | 无人 | `data` 包，只读出厂规则，**实测 101 条**（`[meta] spec_version=1`） |
 | 3 | Linux `/etc/rom-hamster/platforms.conf`；Windows `%ProgramData%\rom-hamster\platforms.conf` | 系统管理员 | Linux 侧为 conffile |
 | 4 | Linux `~/.config/rom-hamster/platforms.conf`；Windows `%APPDATA%\rom-hamster\platforms.conf` | 用户 | 自行增补平台，无需管理员权限 |
 
