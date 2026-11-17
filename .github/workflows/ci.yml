@@ -1,0 +1,125 @@
+name: CI
+
+# 对应 ARCHITECTURE.md 8.4 的四组构建矩阵：
+#   linux-cli / linux-gui  在 ubuntu 上跑
+#   windows-cli / windows-gui 在 MSYS2 MINGW64 上跑
+# 与本地 ci/build-matrix.sh 的检查项一致（构建 + ctest，含 cli/version-utf8* 伪终端用例）。
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-cli:
+    name: linux-cli (Ubuntu)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config util-linux \
+            libglib2.0-dev libsqlite3-dev libarchive-dev libxml2-dev zlib1g-dev
+      - name: Configure
+        run: >
+          cmake -S . -B build/linux-cli -G Ninja
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo -DRH_GUI=OFF
+      - name: Build
+        run: cmake --build build/linux-cli --parallel
+      - name: Test
+        run: ctest --test-dir build/linux-cli --output-on-failure
+
+  linux-gui:
+    name: linux-gui (Ubuntu + Qt 6.8)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config util-linux \
+            libglib2.0-dev libsqlite3-dev libarchive-dev libxml2-dev zlib1g-dev \
+            libgl1-mesa-dev libxkbcommon-x11-0
+      # 发行版 Qt 低于 6.8，用 aqt 装与本地一致的版本
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.*'
+          cache: true
+      - name: Configure
+        run: >
+          cmake -S . -B build/linux-gui -G Ninja
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo -DRH_GUI=ON
+      - name: Build
+        run: cmake --build build/linux-gui --parallel
+      - name: Test
+        run: ctest --test-dir build/linux-gui --output-on-failure
+
+  windows-cli:
+    name: windows-cli (MSYS2 MINGW64)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-glib2
+            mingw-w64-x86_64-sqlite3
+            mingw-w64-x86_64-libarchive
+            mingw-w64-x86_64-libxml2
+            mingw-w64-x86_64-zlib
+      - name: Configure
+        run: >
+          cmake -S . -B build/windows-cli -G Ninja
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo -DRH_GUI=OFF
+      - name: Build
+        run: cmake --build build/windows-cli --parallel
+      - name: Test
+        run: ctest --test-dir build/windows-cli --output-on-failure
+
+  windows-gui:
+    name: windows-gui (MSYS2 MINGW64 + Qt 6)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-glib2
+            mingw-w64-x86_64-sqlite3
+            mingw-w64-x86_64-libarchive
+            mingw-w64-x86_64-libxml2
+            mingw-w64-x86_64-zlib
+            mingw-w64-x86_64-qt6-base
+      - name: Configure
+        run: >
+          cmake -S . -B build/windows-gui -G Ninja
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo -DRH_GUI=ON
+      - name: Build
+        run: cmake --build build/windows-gui --parallel
+      - name: Test
+        run: ctest --test-dir build/windows-gui --output-on-failure

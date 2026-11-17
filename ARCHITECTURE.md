@@ -40,7 +40,7 @@
 | i18n | CLI 用 gettext；GUI 用 Qt Linguist（`.ts`/`.qm`） | §11 |
 | 首启与拖拽 | GUI 启动即弹目录选择；`dragEnterEvent`/`dropEvent` 走同一导入管线，进 M4 | §11 |
 | 里程碑 | M0–M5，双端同等；M3→M4 串行 | §14 |
-| 代码托管 | Gitee 主仓 + GitHub 同名镜像（单向）；CI 计划 GitHub Actions，当前不接 | §8.4 README |
+| 代码托管 | Gitee 主仓 + GitHub 同名镜像（单向）；CI 由 GitHub Actions 在镜像上自动跑四组矩阵 | §8.4 README |
 | 升级 | 三端原地覆盖；启动时 schema 迁移 + 降级防护 | §9.4 |
 | 版本检查 | GUI 启动静默检查；仅提示并打开下载页，不下载不安装 | §11 |
 | 已定项 | 8 项决策与 2 个遗留问题 | §16 |
@@ -974,6 +974,8 @@ pkg-config --modversion glib-2.0; sqlite3 --version; qmake6 -query QT_VERSION; l
 
 CI 入口是 `ci/build-matrix.sh`：在 Linux 上跑 `linux-cli`/`linux-gui` 两个预设并在末尾补一组 `-DRH_SANITIZE=address,undefined`；在 MSYS2(MINGW64) 上跑 `windows-cli`/`windows-gui`。两个平台各跑一次即覆盖四组矩阵。
 
+远端自动执行：`.github/workflows/ci.yml` 在 GitHub 镜像上按 push/PR 触发，四个 job 与上面四组一一对应（Linux 两份在 ubuntu-24.04，Windows 两份在 windows-latest + MSYS2 MINGW64，GUI 的 Qt 分别用 aqt 6.8 与 `mingw-w64-x86_64-qt6-base`）。本地脚本保留作离线兜底；Gitee 主仓目前不跑流水线，推送镜像即触发。
+
 **当前验证状态（2026-11-17，M1 进行中）**：四组在真机跑通，且 M1 已完成 `rh-str`、`rh-records`、`store` 三个模块——
 
 | 平台 | 工具链 | CLI 预设 | GUI 预设 | `ctest` |
@@ -1260,7 +1262,7 @@ ROM_ROOT = /home/zhoux/roms
 
 - `core/no-gui-linkage` 在 Linux 用 `ldd`，Windows 上该用例跳过并提示由 `dumpbin` 在 M5 打包阶段检查；Windows 的 `dumpbin` 断言目前**尚未执行**，不记为已通过。
 - CLI 的 `--version` 已在 Linux 实测；两个 exe 的启动验收在 M1 首轮手动补记一次（M0 的 GUI 只是空窗口）。
-- 四组构建目前由 `ci/build-matrix.sh` 在本机执行；Gitee Go 流水线尚待在仓库页面启用。
+- 四组构建可本机用 `ci/build-matrix.sh` 跑，也可由 GitHub 镜像上的 Actions 自动跑；Gitee Go 流水线仍未启用。
 
 **M1 进度（2026-11-17）**
 
