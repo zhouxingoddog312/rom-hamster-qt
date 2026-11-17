@@ -1,0 +1,28 @@
+# 统一换行：仓库内存 LF，避免 Windows 检出后脚本带 CRLF
+* text=auto eol=lf
+
+# 脚本与构建文件必须是 LF
+*.sh            text eol=lf
+.gitattributes  text eol=lf
+.gitignore      text eol=lf
+CMakeLists.txt  text eol=lf
+CMakePresets.json text eol=lf
+*.cmake         text eol=lf
+*.conf          text eol=lf
+*.desktop       text eol=lf
+*.iss           text eol=lf
+
+# 源码与文档
+*.c             text eol=lf
+*.h             text eol=lf
+*.cpp           text eol=lf
+*.md            text eol=lf
+*.txt           text eol=lf
+*.po            text eol=lf
+*.ts            text eol=lf
+
+# 二进制资产不做换行转换
+*.png   binary
+*.ico   binary
+*.svg   text eol=lf
+*.db    binary
