@@ -56,6 +56,7 @@ add_library(romham SHARED
     src/core/rh-path.c
     src/core/rh-str.c
     src/core/rh-records.c
+    src/core/platform.c
     src/core/store.c
     src/core/store-schema.c
 )
@@ -172,6 +173,12 @@ if(BUILD_TESTING)
     add_executable(test-records tests/unit/test-records.c)
     target_link_libraries(test-records PRIVATE romham PkgConfig::GLIB2)
     add_test(NAME core/records COMMAND test-records)
+
+    add_executable(test-platform tests/unit/test-platform.c)
+    target_link_libraries(test-platform PRIVATE romham PkgConfig::GLIB2)
+    target_compile_definitions(test-platform PRIVATE
+        RH_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
+    add_test(NAME core/platform COMMAND test-platform)
 
     add_test(NAME core/no-gui-linkage
         COMMAND ${CMAKE_COMMAND}

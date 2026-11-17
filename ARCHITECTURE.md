@@ -974,7 +974,16 @@ pkg-config --modversion glib-2.0; sqlite3 --version; qmake6 -query QT_VERSION; l
 
 CI 入口是 `ci/build-matrix.sh`：在 Linux 上跑 `linux-cli`/`linux-gui` 两个预设并在末尾补一组 `-DRH_SANITIZE=address,undefined`；在 MSYS2(MINGW64) 上跑 `windows-cli`/`windows-gui`。两个平台各跑一次即覆盖四组矩阵。
 
-**当前验证状态（2026-11-17）**：四组已在真机跑通——Linux（GCC + Qt 6.10.2）与 Windows 11（MSYS2 MINGW64、GCC 16.2、Qt 6.12）的 CLI/GUI 两组均构建成功，`ctest` 各 5/5，其中包括在中文项目路径下运行的 `core/path`。
+**当前验证状态（2026-11-17，M1 进行中）**：四组在真机跑通，且 M1 已完成 `rh-str`、`rh-records`、`store` 三个模块——
+
+| 平台 | 工具链 | CLI 预设 | GUI 预设 | `ctest` |
+|---|---|---|---|---|
+| Linux（WSL Ubuntu） | CMake 4.2.3、GCC 15.2、GLib 2.88、SQLite 3.46、Qt 6.10.2 | 24 目标 | 40 目标 | 各 **7/7** |
+| Windows 11 x64（MSYS2 MINGW64） | CMake 4.5、GCC 16.2、GLib 2.90.1、SQLite 3.54.1 | 23 目标 | 39 目标 | 各 **7/7** |
+
+用例构成：`core/rh-err` 1、`core/store` 9、`core/path` 4、`core/str` 8、`core/records` 5、`core/no-gui-linkage` 1、`tools/make-ico` 1。Windows 侧同样在含中文的项目路径下通过，`core/path` 覆盖了 UTF-8 入口。
+
+**仍未做**：`dumpbin /dependents` 对 Windows 版 `libromham` 的 Qt 符号断言尚未执行（`core/no-gui-linkage` 在 Windows 跳过了 `ldd`），按 §8.4 安排到 M5 打包阶段补做。不要把这一条算作已通过。
 
 **托管与流水线计划**：Gitee 为主仓（唯一提交入口），GitHub 同名仓库为单向镜像；日常先推主仓再推镜像，步骤见 README「仓库与同步」。CI 计划走 GitHub Actions——Windows 用 `msys2/setup-msys2` 跑 `windows-cli`/`windows-gui`，Linux 组在 Ubuntu 上跑并附 sanitizer，统一调用 `ci/build-matrix.sh` 或等价的预设命令。**当前不接**，等代码量上来或需要 PR 门禁时再启用；在此之前由人工在两个平台的终端执行。
 
@@ -1252,6 +1261,19 @@ ROM_ROOT = /home/zhoux/roms
 - `core/no-gui-linkage` 在 Linux 用 `ldd`，Windows 上该用例跳过并提示由 `dumpbin` 在 M5 打包阶段检查；Windows 的 `dumpbin` 断言目前**尚未执行**，不记为已通过。
 - CLI 的 `--version` 已在 Linux 实测；两个 exe 的启动验收在 M1 首轮手动补记一次（M0 的 GUI 只是空窗口）。
 - 四组构建目前由 `ci/build-matrix.sh` 在本机执行；Gitee Go 流水线尚待在仓库页面启用。
+
+**M1 进度（2026-11-17）**
+
+已完成并提交：`rh-str`（8 用例）、`rh-records`（5 用例）、`store`（9 用例，含事务、只读拒写、作业）。
+
+| 平台 | 工具链 | CLI 预设 | GUI 预设 | `ctest` |
+|---|---|---|---|---|
+| Linux（WSL Ubuntu） | CMake 4.2.3、GCC 15.2、GLib 2.88、SQLite 3.46、Qt 6.10.2 | 24 目标 | 40 目标 | 各 **7/7** |
+| Windows 11 x64 | MSYS2 MINGW64、CMake 4.5、GCC 16.2、GLib 2.90.1、SQLite 3.54.1 | 23 目标 | 39 目标（含 `rom-hamster-gui.exe`） | 各 **7/7** |
+
+用例构成：`core/rh-err` 1、`core/store` 9、`core/path` 4、`core/str` 8、`core/records` 5、`core/no-gui-linkage` 1、`tools/make-ico` 1。
+
+未做：Windows 侧 `dumpbin` 断言仍未执行（同 M0 口径，留到 M5）；`platform`/`library`/`classify`/`import` 预扫描尚在实现中，M1 未结项。
 
 ### 14.1 M4 性能验收（量化）
 
