@@ -74,11 +74,28 @@ gint64     store_games_count(RhStore *store, const RhGameFilter *filter, RhErr *
 RhErr store_job_create(RhStore *store, const char *kind, int total, gint64 *out_id);
 RhErr store_job_progress(RhStore *store, gint64 job_id, int done);
 RhErr store_job_finish(RhStore *store, gint64 job_id, const char *error);
+RhErr store_job_set_state(RhStore *store, gint64 job_id, const char *state);
+
+typedef struct {
+    gint64 id;
+    gchar *kind;
+    gchar *state;
+    gint   total;
+    gint   done;
+    gchar *created_at;
+} RhJobInfo;
+
+void rh_job_info_free(RhJobInfo *info);
+/* state 不是 done/failed 的作业，按 id 升序；调用方 g_ptr_array_unref。 */
+GPtrArray *store_job_list_unfinished(RhStore *store, RhErr *out_err);
 /* 写入/更新一个作业条目；导入执行阶段把状态与游戏记录放在同一事务里。 */
 RhErr store_job_item_set(RhStore *store, gint64 job_id, int seq,
                          const char *src, const char *action,
                          const char *platform, const char *target_id,
                          const char *state, const char *message);
+/* 按来源标签查最近一条条目状态；未找到 *out_state = NULL。 */
+RhErr store_job_item_state(RhStore *store, gint64 job_id, const char *src,
+                           const char *platform, gchar **out_state);
 
 /* ---------------------------------------------------------------------------
  * DAT：XML 解析归 dat.c，这里只落库与按哈希查（§5.1 边界表）。

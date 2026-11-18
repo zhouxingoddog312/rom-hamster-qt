@@ -1142,9 +1142,102 @@ RhErr store_job_item_set(RhStore *store, gint64 job_id, int seq,
     return rc == SQLITE_DONE ? RH_OK : RH_ERR_DB;
 }
 
-/* ===========================================================================
- * DAT（XML 解析归 dat.c；这里只落库与按哈希查）
- * ========================================================================= */
+RhErr store_job_item_state(RhStore *store, gint64 job_id, const char *src,
+                           const char *platform, gchar **out_state)
+{
+    if (out_state != NULL)
+        *out_state = NULL;
+    if (store == NULL || src == NULL)
+        return RH_ERR_INVALID;
+
+    sqlite3_stmt *stmt = NULL;
+    RhErr err = prepare(store->db,
+                        "SELECT state FROM job_items"
+                        " WHERE job_id = ? AND src = ?"
+                        "   AND COALESCE(platform, '') = COALESCE(?, '')"
+                        " ORDER BY seq DESC LIMIT 1;",
+                        &stmt);
+    if (err != RH_OK)
+        return err;
+
+    sqlite3_bind_int64(stmt, 1, job_id);
+    bind_text(stmt, 2, src);
+    bind_text(stmt, 3, platform);
+    if (sqlite3_step(stmt) == SQLITE_ROW && out_state != NULL)
+        *out_state = column_str(stmt, 0);
+    sqlite3_finalize(stmt);
+    return RH_OK;
+}
+
+RhErr store_job_set_state(RhStore *store, gint64 job_id, const char *state)
+{
+    RhErr err = ensure_writable(store);
+    if (err != RH_OK)
+        return err;
+    if (state == NULL)
+        return RH_ERR_INVALID;
+
+    sqlite3_stmt *stmt = NULL;
+    err = prepare(store->db, "UPDATE jobs SET state = ? WHERE id = ?;", &stmt);
+    if (err != RH_OK)
+        return err;
+    bind_text(stmt, 1, state);
+    sqlite3_bind_int64(stmt, 2, job_id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE ? RH_OK : RH_ERR_DB;
+}
+
+void rh_job_info_free(RhJobInfo *info)
+{
+    if (info == NULL)
+        return;
+    g_free(info->kind);
+    g_free(info->state);
+    g_free(info->created_at);
+    g_free(info);
+}
+
+GPtrArray *store_job_list_unfinished(RhStore *store, RhErr *out_err)
+{
+    GPtrArray *jobs = g_ptr_array_new_with_free_func(
+        (GDestroyNotify)rh_job_info_free);
+    if (out_err != NULL)
+        *out_err = RH_OK;
+    if (store == NULL) {
+        if (out_err != NULL)
+            *out_err = RH_ERR_INVALID;
+        return jobs;
+    }
+
+    sqlite3_stmt *stmt = NULL;
+    RhErr err = prepare(store->db,
+                        "SELECT id, kind, state, total, done, created_at"
+                        " FROM jobs WHERE state NOT IN ('done', 'failed')"
+                        " ORDER BY id;",
+                        &stmt);
+    if (err != RH_OK) {
+        if (out_err != NULL)
+            *out_err = err;
+        return jobs;
+    }
+
+    int rc;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        RhJobInfo *info = g_new0(RhJobInfo, 1);
+        info->id = sqlite3_column_int64(stmt, 0);
+        info->kind = column_str(stmt, 1);
+        info->state = column_str(stmt, 2);
+        info->total = sqlite3_column_int(stmt, 3);
+        info->done = sqlite3_column_int(stmt, 4);
+        info->created_at = column_str(stmt, 5);
+        g_ptr_array_add(jobs, info);
+    }
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE && out_err != NULL)
+        *out_err = RH_ERR_DB;
+    return jobs;
+}
 
 RhErr store_dat_begin(RhStore *store, const char *platform, const char *path,
                       const char *name, const char *version,

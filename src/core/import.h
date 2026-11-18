@@ -37,6 +37,8 @@ typedef struct {
     GPtrArray *patches_raw;       /* GBytes*，与 patches 一一对应 */
     gboolean   ambiguous;         /* 平台无法唯一确定 */
     gboolean   target_exists;     /* 目标目录已存在（只读探测） */
+    gboolean   is_arcade;         /* 街机 ZIP：一个包就是一个游戏 */
+    gchar     *rom_format;        /* raw/zip/7z；归档条目按外层容器填写 */
 } RhImportPlanEntry;
 
 typedef struct {
@@ -46,6 +48,9 @@ typedef struct {
     guint      skipped_media;
     guint      guessed_names;  /* 按 GB18030 推测成功的名字数 */
     guint      escaped_names;  /* 无法解码、只能转义的名字数 */
+    guint      skipped_patch_archives;    /* 纯补丁包：需要归属游戏，暂不导入 */
+    guint      skipped_mixed_archives;    /* 混装包：需要用户决定，暂不导入 */
+    guint      skipped_ambiguous_archives;/* 二义包：平台不唯一 */
 } RhImportPlan;
 
 void rh_import_media_free(RhImportMediaFile *media);

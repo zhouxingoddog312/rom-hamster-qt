@@ -4,7 +4,7 @@
 > 本版修订：
 > 1. 吸收 DAT 生态调研结论：匹配顺序改为 `sha1 → md5 → crc32`（先按 size 缩小范围，无 size 条目豁免）；Redump `<disk>` 以 `entry_type='disk'` 入库（只取 name/sha1/md5），`<sample>` 只计数不入库；`dats.file_sha1` 记录 DAT 文件自身哈希（解析时顺带计算，不额外读盘）；重导时内容未变直接跳过，`force` 可强制重建；schema 升到 v4（`entry_type`、`file_sha1`、`(size, crc32)` 复合索引），新增 v3→v4 迁移。
 > 2. §3.5、§5、§7.5、§15.2 的匹配顺序与上述保持一致（刮削查询键同步为强到弱）。
-> 3. §14 M2 增加 `import` 执行阶段：临时名 → 原子改名 → 单条事务（游戏 + ROM/媒体/补丁 + `job_items` 同事务），失败回滚已复制文件，取消只发生在条目边界；DAT 匹配在复制流中顺带算 CRC32，唯一命中才回填 `dat_id`/`dat_source`；碟号解析（至少两个不同碟号才算多碟）、按碟号排序的 m3u（`generate_m3u` 选项，默认关闭）、补丁类型判定已接入。
+> 3. §14 M2 增加 `import` 执行阶段：临时名 → 原子改名 → 单条事务（游戏 + ROM/媒体/补丁 + `job_items` 同事务），失败回滚已复制文件，取消只发生在条目边界；DAT 匹配在复制流中顺带算 CRC32，唯一命中才回填 `dat_id`/`dat_source`；碟号解析（至少两个不同碟号才算多碟）、按碟号排序的 m3u（`generate_m3u` 选项，默认关闭）、补丁类型判定已接入。压缩包六级分流落到 `classify`（纯条目名判定）与预扫描；作业按 `job_items` 来源标签续做。
 >
 > v0.7（2026-11-18）修订：
 > 1. 新增 §3.3/§3.4 的 v3 schema：`dat_entries` 改为代理主键 + `(dat_id, game_name, rom_name)` 唯一索引（rom 名只在 game 内唯一），补 `status/cloneof/romof/merge_name`；`dats` 增加 `encoding/skipped`；`roms` 增加 `dat_id`（匹配来源可追溯）。
@@ -605,7 +605,7 @@ typedef struct {
 必须保持的判定规则（验收项）：
 
 - **分类优先级链**（classify）：压缩包 → 通用补丁（`.ips/.bps/.ups/.ppf/.xdelta/.xdelta3/.patch/.ips32`）→ 平台二义后缀 → 平台专属补丁 → ROM 本体（且当扩展名同时是媒体类型时，用 `dual_role_kind` 判真实内容）→ 媒体/说明。**必须先判真实内容再判 ROM**；否则 `.jpg` 会被当 videopac ROM、`.md` 会被当 megadrive ROM。
-- **压缩包六级分流**：PSV 整库（按 `sce_sys/`、`PCSH*` 路径特征识别，整体入库不解压）→ 纯补丁包 → 街机 ZIP（按 `[arcade_rom_suffixes]` 判定多文件）→ 二义性包 → 单 ROM 包 → 混合包。
+- **压缩包六级分流**：PSV 整库（按 `sce_sys/`、`PCSH*` 路径特征识别，整体入库不解压）→ 纯补丁包 → 街机 ZIP（按 `[arcade_rom_suffixes]` 判定多文件）→ 二义性包 → 单 ROM 包 → 混合包。分流只依据条目名，不读内容；PSV/街机/单 ROM 三类按整包入库（`rom_format` 记外层容器），纯补丁/二义/混合三类只计数并留给 UI 决策，不静默当 ROM。
 - **平台判定**：扩展名唯一命中 → 直接用；多平台命中 → 走 `ui->choose`；目录名反查走 `aliases`（`resolve_platform_dir`）。
 - **媒体归属**：孤立媒体按核心名归一后做相似度匹配，阈值取配置 `duplicate_check_threshold`（默认 70）。
 - **目录命名**：`sanitize_dirname` 规则固定，保证库内文件布局稳定；Windows 额外处理保留名（`CON`/`PRN`/`AUX`/`NUL`/`COM1`…）、结尾点与空格。见 §15。
@@ -1360,10 +1360,13 @@ ROM_ROOT = /home/zhoux/roms
 与多候选二义、SHA1 兜底、缺字段/畸形 XML、取消、GB18030 与非法字节、Redump
 disk 与 sample、内容未变跳过/force/变更重导）、`import` 执行阶段（临时名 → 原子
 改名 → 单条事务，5 用例：正常导入并回填 DAT 来源、目标冲突跳过、写库失败回滚、
-取消后已提交条目保留、多碟 m3u + 碟号 + 补丁类型）。`import` 预扫描与 `store`
-已接入原始字节，schema 升到 v4（v1→v2→v3→v4 迁移均有用例）。四组构建
-（Linux/Windows × CLI/GUI）通过；`ctest` Linux 17/17（86 用例）、Windows 15/15
-（82 用例）。执行阶段尚未做：压缩包六级分流与归档内容落位。下一步：M2 收尾。
+取消后已提交条目保留、多碟 m3u + 碟号 + 补丁类型）、压缩包六级分流（`classify`
+新增按条目名分流的纯函数，1 用例覆盖六类）与作业续做（`job_items` 按来源标签
+跳过已完成条目，`store_job_list_unfinished` 供启动时提示，2 用例：分流落位、
+取消后同 job_id 重跑不重复入库）。`import` 预扫描与 `store` 已接入原始字节，
+schema 升到 v4（v1→v2→v3→v4 迁移均有用例）。四组构建（Linux/Windows × CLI/GUI）
+通过；`ctest` Linux 17/17（89 用例）、Windows 15/15（85 用例）。纯补丁/混合/二义
+包与顶层街机 ZIP 的平台判定仍留给 M4 的交互；下一步：M3。
 
 ### 14.1 M4 性能验收（量化）
 

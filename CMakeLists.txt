@@ -207,7 +207,7 @@ if(BUILD_TESTING)
 
     add_executable(test-import tests/unit/test-import.c)
     target_link_libraries(test-import PRIVATE
-        romham PkgConfig::GLIB2 PkgConfig::SQLITE3)
+        romham PkgConfig::GLIB2 PkgConfig::SQLITE3 PkgConfig::LIBARCHIVE)
     target_compile_definitions(test-import PRIVATE
         RH_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
     add_test(NAME core/import COMMAND test-import)

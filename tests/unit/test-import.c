@@ -1,3 +1,5 @@
+#include <archive.h>
+#include <archive_entry.h>
 #include <glib.h>
 #include <glib/gstdio.h>
 #include <sqlite3.h>
@@ -738,6 +740,190 @@ static void test_execute_multidisc(void)
     g_free(lib);
 }
 
+/* ---------------------------------------------------------------------------
+ * 压缩包分流
+ * ------------------------------------------------------------------------- */
+
+static void build_zip(const gchar *path, const gchar *const *names)
+{
+    struct archive *writer = archive_write_new();
+    g_assert_nonnull(writer);
+    g_assert_cmpint(archive_write_set_format_zip(writer), ==, ARCHIVE_OK);
+    g_assert_cmpint(archive_write_open_filename(writer, path), ==, ARCHIVE_OK);
+    for (guint i = 0; names[i] != NULL; i++) {
+        struct archive_entry *entry = archive_entry_new();
+        archive_entry_set_pathname(entry, names[i]);
+        archive_entry_set_filetype(entry, AE_IFREG);
+        archive_entry_set_perm(entry, 0644);
+        archive_entry_set_size(entry, 3);
+        g_assert_cmpint(archive_write_header(writer, entry), ==, ARCHIVE_OK);
+        g_assert_cmpint(archive_write_data(writer, "abc", 3), ==, 3);
+        archive_entry_free(entry);
+    }
+    g_assert_cmpint(archive_write_close(writer), ==, ARCHIVE_OK);
+    g_assert_cmpint(archive_write_free(writer), ==, ARCHIVE_OK);
+}
+
+static RhImportPlanEntry *find_entry(RhImportPlan *plan, const gchar *name)
+{
+    for (guint i = 0; i < plan->entries->len; i++) {
+        RhImportPlanEntry *entry = g_ptr_array_index(plan->entries, i);
+        if (g_strcmp0(entry->name, name) == 0)
+            return entry;
+    }
+    return NULL;
+}
+
+static void test_scan_archive_branches(void)
+{
+    RhPlatformRules *rules = load();
+    gchar *src = g_dir_make_tmp("romham-src-XXXXXX", NULL);
+    gchar *lib = g_dir_make_tmp("romham-lib-XXXXXX", NULL);
+
+    const gchar *single[] = { "Tetris (World).gb", NULL };
+    gchar *path = g_build_filename(src, "single.zip", NULL);
+    build_zip(path, single);
+    g_free(path);
+
+    const gchar *arcade[] = { "sf2.rom", "sf2.bin", "sf2.z80", NULL };
+    path = g_build_filename(src, "sf2.zip", NULL);
+    build_zip(path, arcade);
+    g_free(path);
+
+    const gchar *mixed[] = { "Tetris (World).gb", "cover.png", NULL };
+    path = g_build_filename(src, "mixed.zip", NULL);
+    build_zip(path, mixed);
+    g_free(path);
+
+    const gchar *patches[] = { "fix.ips", "fix.bps", NULL };
+    path = g_build_filename(src, "fixes.zip", NULL);
+    build_zip(path, patches);
+    g_free(path);
+
+    const gchar *ambiguous[] = { "game.bin", NULL };
+    path = g_build_filename(src, "ambiguous.zip", NULL);
+    build_zip(path, ambiguous);
+    g_free(path);
+
+    RhErr err = RH_OK;
+    RhImportPlan *plan = rh_import_plan_scan(rules, src, &err);
+    g_assert_cmpint(err, ==, RH_OK);
+    g_assert_cmpuint(plan->entries->len, ==, 2);
+    g_assert_cmpuint(plan->skipped_mixed_archives, ==, 1);
+    g_assert_cmpuint(plan->skipped_patch_archives, ==, 1);
+    g_assert_cmpuint(plan->skipped_ambiguous_archives, ==, 1);
+
+    RhImportPlanEntry *single_entry = find_entry(plan, "single.zip");
+    g_assert_nonnull(single_entry);
+    g_assert_cmpstr(single_entry->platform, ==, "gb");
+    g_assert_false(single_entry->is_arcade);
+    g_assert_cmpstr(single_entry->rom_format, ==, "zip");
+
+    RhImportPlanEntry *arcade_entry = find_entry(plan, "sf2.zip");
+    g_assert_nonnull(arcade_entry);
+    g_assert_true(arcade_entry->is_arcade);
+    g_assert_cmpstr(arcade_entry->rom_format, ==, "zip");
+    /* 顶层 `.zip` 同时命中多个街机平台，不猜平台，执行阶段会跳过 */
+    g_assert_null(arcade_entry->platform);
+
+    /* 归档按整包入库：不展开，rom_format 记 zip */
+    RhStore *store = open_store_at(lib);
+    RhImportExecOptions options = {0};
+    options.root = lib;
+    options.source_dir = src;
+    RhImportExecStats stats;
+    g_assert_cmpint(rh_import_execute(store, rules, plan, &options, &stats),
+                    ==, RH_OK);
+    g_assert_cmpuint(stats.imported, ==, 1);
+    g_assert_cmpuint(stats.skipped, ==, 1);
+
+    gchar *copied_single = g_build_filename(lib, "gb", "single.zip", "single.zip", NULL);
+    g_assert_true(g_file_test(copied_single, G_FILE_TEST_IS_REGULAR));
+    g_free(copied_single);
+
+    RhGameFilter filter = {0};
+    GPtrArray *games = store_games_list(store, &filter, &err);
+    g_assert_cmpuint(games->len, ==, 1);
+    RhGame *only = g_ptr_array_index(games, 0);
+    g_assert_cmpstr(only->rom_format, ==, "zip");
+    g_assert_false(only->is_arcade);
+    g_ptr_array_unref(games);
+
+    store_close(store);
+    rh_import_plan_free(plan);
+    rh_platform_rules_free(rules);
+    remove_tree(src);
+    remove_tree(lib);
+    g_free(src);
+    g_free(lib);
+}
+
+/* ---------------------------------------------------------------------------
+ * 作业续做
+ * ------------------------------------------------------------------------- */
+
+static void test_execute_resume(void)
+{
+    RhPlatformRules *rules = load();
+    gchar *src = g_dir_make_tmp("romham-src-XXXXXX", NULL);
+    gchar *lib = g_dir_make_tmp("romham-lib-XXXXXX", NULL);
+    write_file(src, "gb/Tetris (World).gb", "abc");
+    write_file(src, "snes/Super Metroid.sfc", "xyz");
+
+    RhStore *store = open_store_at(lib);
+    RhErr err = RH_OK;
+    RhImportPlan *plan = rh_import_plan_scan(rules, src, &err);
+    g_assert_cmpint(err, ==, RH_OK);
+    g_assert_cmpuint(plan->entries->len, ==, 2);
+
+    gint64 job_id = 0;
+    g_assert_cmpint(store_job_create(store, "import", 2, &job_id), ==, RH_OK);
+
+    /* 第一次：导入第一条后取消，作业落为 cancelled */
+    CancelState cancel = {0};
+    RhImportExecOptions options = {0};
+    options.root = lib;
+    options.source_dir = src;
+    options.job_id = job_id;
+    options.cancel = cancel_after_first;
+    options.cancel_data = &cancel;
+    RhImportExecStats stats;
+    g_assert_cmpint(rh_import_execute(store, rules, plan, &options, &stats),
+                    ==, RH_ERR_CANCELLED);
+    g_assert_cmpuint(stats.imported, ==, 1);
+
+    GPtrArray *unfinished = store_job_list_unfinished(store, &err);
+    g_assert_cmpint(err, ==, RH_OK);
+    g_assert_cmpuint(unfinished->len, ==, 1);
+    g_assert_cmpint(((RhJobInfo *)g_ptr_array_index(unfinished, 0))->id, ==, job_id);
+    g_ptr_array_unref(unfinished);
+
+    /* 第二次：同一 job_id 重跑，已完成的条目不重复写库 */
+    options.cancel = NULL;
+    options.cancel_data = NULL;
+    g_assert_cmpint(rh_import_execute(store, rules, plan, &options, &stats),
+                    ==, RH_OK);
+    g_assert_false(stats.cancelled);
+    g_assert_cmpuint(stats.imported, ==, 2);
+
+    RhGameFilter filter = {0};
+    GPtrArray *games = store_games_list(store, &filter, &err);
+    g_assert_cmpuint(games->len, ==, 2);
+    g_ptr_array_unref(games);
+
+    unfinished = store_job_list_unfinished(store, &err);
+    g_assert_cmpuint(unfinished->len, ==, 0);
+    g_ptr_array_unref(unfinished);
+
+    rh_import_plan_free(plan);
+    store_close(store);
+    rh_platform_rules_free(rules);
+    remove_tree(src);
+    remove_tree(lib);
+    g_free(src);
+    g_free(lib);
+}
+
 int main(int argc, char **argv)
 {
     rh_test_init(&argc, &argv);
@@ -753,5 +939,7 @@ int main(int argc, char **argv)
     g_test_add_func("/import/execute-rollback", test_execute_rollback);
     g_test_add_func("/import/execute-cancel", test_execute_cancel);
     g_test_add_func("/import/execute-multidisc", test_execute_multidisc);
+    g_test_add_func("/import/scan-archive-branches", test_scan_archive_branches);
+    g_test_add_func("/import/execute-resume", test_execute_resume);
     return g_test_run();
 }

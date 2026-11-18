@@ -138,3 +138,121 @@ RhClassifyResult *rh_classify_file(const RhPlatformRules *rules, const char *fil
     g_free(ext);
     return result;
 }
+
+/* ---------------------------------------------------------------------------
+ * 压缩包六级分流
+ * ------------------------------------------------------------------------- */
+
+void rh_archive_classify_free(RhArchiveClassifyResult *result)
+{
+    if (result == NULL)
+        return;
+    g_free(result->platform);
+    g_free(result);
+}
+
+static gboolean component_starts_with(const gchar *lower_path, const gchar *prefix)
+{
+    const gchar *p = lower_path;
+    while (p != NULL && *p != '\0') {
+        if (g_str_has_prefix(p, prefix))
+            return TRUE;
+        p = strchr(p, '/');
+        if (p != NULL)
+            p++;
+    }
+    return FALSE;
+}
+
+static gboolean path_is_psv(const gchar *path)
+{
+    gchar *lower = g_ascii_strdown(path, -1);
+    gboolean psv = g_str_has_prefix(lower, "sce_sys/") ||
+                   strstr(lower, "/sce_sys/") != NULL ||
+                   component_starts_with(lower, "pcsh");
+    g_free(lower);
+    return psv;
+}
+
+RhArchiveClassifyResult *rh_classify_archive(const RhPlatformRules *rules,
+                                             const GPtrArray *entry_paths)
+{
+    RhArchiveClassifyResult *result = g_new0(RhArchiveClassifyResult, 1);
+    if (rules == NULL || entry_paths == NULL) {
+        result->branch = RH_ARCHIVE_AMBIGUOUS;
+        result->ambiguous = TRUE;
+        return result;
+    }
+
+    GHashTable *platform_ids = g_hash_table_new_full(g_str_hash, g_str_equal,
+                                                     g_free, NULL);
+    guint arcade_members = 0;
+    gboolean platform_ambiguous = FALSE;
+    gboolean psv = FALSE;
+
+    for (guint i = 0; i < entry_paths->len; i++) {
+        const gchar *path = g_ptr_array_index(entry_paths, i);
+        if (path == NULL || *path == '\0' || g_str_has_suffix(path, "/"))
+            continue;
+        if (!psv && path_is_psv(path))
+            psv = TRUE;
+
+        const gchar *base = strrchr(path, '/');
+        base = base != NULL ? base + 1 : path;
+        if (rh_platform_is_arcade_rom_member(rules, base))
+            arcade_members++;
+
+        RhClassifyResult *one = rh_classify_file(rules, base);
+        switch (one->kind) {
+        case RH_CLASSIFY_ROM:
+            result->rom_count++;
+            if (one->ambiguous)
+                platform_ambiguous = TRUE;
+            for (guint k = 0; k < one->candidates->len; k++) {
+                RhPlatform *candidate = g_ptr_array_index(one->candidates, k);
+                g_hash_table_add(platform_ids, g_strdup(candidate->id));
+            }
+            break;
+        case RH_CLASSIFY_PATCH:
+            result->patch_count++;
+            break;
+        case RH_CLASSIFY_MEDIA:
+            result->media_count++;
+            break;
+        case RH_CLASSIFY_ARCHIVE:
+            /* 嵌套压缩包按未知处理，避免静默展开 */
+            result->unknown_count++;
+            break;
+        case RH_CLASSIFY_UNKNOWN:
+            result->unknown_count++;
+            break;
+        }
+        rh_classify_result_free(one);
+    }
+
+    result->ambiguous = platform_ambiguous || g_hash_table_size(platform_ids) > 1;
+    if (g_hash_table_size(platform_ids) == 1) {
+        GHashTableIter iter;
+        gpointer key = NULL;
+        g_hash_table_iter_init(&iter, platform_ids);
+        if (g_hash_table_iter_next(&iter, &key, NULL))
+            result->platform = g_strdup(key);
+    }
+    g_hash_table_unref(platform_ids);
+
+    if (psv)
+        result->branch = RH_ARCHIVE_PSV;
+    else if (result->rom_count == 0 && result->patch_count > 0)
+        result->branch = RH_ARCHIVE_PATCHES;
+    else if (arcade_members >= 2)
+        result->branch = RH_ARCHIVE_ARCADE;
+    else if (result->ambiguous)
+        result->branch = RH_ARCHIVE_AMBIGUOUS;
+    else if (result->rom_count == 1 && result->patch_count == 0 &&
+             result->media_count == 0 && result->unknown_count == 0)
+        result->branch = RH_ARCHIVE_SINGLE_ROM;
+    else
+        result->branch = RH_ARCHIVE_MIXED;
+
+    return result;
+}

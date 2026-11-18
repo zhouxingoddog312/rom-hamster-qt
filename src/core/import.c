@@ -9,6 +9,7 @@
 
 #include "classify.h"
 #include "dat.h"
+#include "rh-archive.h"
 #include "rh-records.h"
 #include "rh-str.h"
 
@@ -33,6 +34,7 @@ void rh_import_entry_free(RhImportPlanEntry *entry)
     g_free(entry->platform);
     g_free(entry->name);
     g_free(entry->game_dir);
+    g_free(entry->rom_format);
     g_ptr_array_free(entry->roms, TRUE);
     g_ptr_array_free(entry->roms_raw, TRUE);
     g_ptr_array_free(entry->media, TRUE);
@@ -57,6 +59,7 @@ static RhImportPlanEntry *entry_new(const char *subdir, GBytes *subdir_raw,
     entry->source_subdir_raw = subdir_raw != NULL
         ? g_bytes_ref(subdir_raw) : g_bytes_new("", 0);
     entry->name = g_strdup(name);
+    entry->rom_format = g_strdup("raw");
     entry->roms = g_ptr_array_new_with_free_func(g_free);
     entry->roms_raw = g_ptr_array_new_with_free_func((GDestroyNotify)g_bytes_unref);
     entry->media = g_ptr_array_new_with_free_func((GDestroyNotify)rh_import_media_free);
@@ -285,6 +288,47 @@ static gint cmp_fnames(gconstpointer a, gconstpointer b)
     return g_bytes_compare(fa->raw, fb->raw);
 }
 
+/* rom_format 只接受 DDL 里的取值；.rar 等无语义容器按 raw 记。 */
+static gchar *container_format_for(const gchar *filename)
+{
+    gchar *ext = rh_str_extension(filename);
+    gchar *format = NULL;
+    if (ext != NULL && g_strcmp0(ext, ".zip") == 0)
+        format = g_strdup("zip");
+    else if (ext != NULL && g_strcmp0(ext, ".7z") == 0)
+        format = g_strdup("7z");
+    else if (ext != NULL && g_strcmp0(ext, ".chd") == 0)
+        format = g_strdup("chd");
+    else if (ext != NULL && g_strcmp0(ext, ".cso") == 0)
+        format = g_strdup("cso");
+    else if (ext != NULL && g_strcmp0(ext, ".wbfs") == 0)
+        format = g_strdup("wbfs");
+    g_free(ext);
+    return format != NULL ? format : g_strdup("raw");
+}
+
+static void add_single_entry(RhImportPlan *plan, const RhPlatformRules *rules,
+                             const char *source_dir, RhFName *item,
+                             gboolean ambiguous, gboolean is_arcade,
+                             const gchar *rom_format,
+                             const gchar *fallback_platform)
+{
+    RhImportPlanEntry *entry = entry_new("", NULL, item->display);
+    g_ptr_array_add(entry->roms, g_strdup(item->display));
+    g_ptr_array_add(entry->roms_raw, g_bytes_ref(item->raw));
+    entry->ambiguous = ambiguous;
+    entry->is_arcade = is_arcade;
+    if (rom_format != NULL) {
+        g_free(entry->rom_format);
+        entry->rom_format = g_strdup(rom_format);
+    }
+    resolve_platform(entry, rules);
+    if (entry->platform == NULL && fallback_platform != NULL)
+        entry->platform = g_strdup(fallback_platform);
+    fill_game_dir(entry, source_dir);
+    g_ptr_array_add(plan->entries, entry);
+}
+
 RhImportPlan *rh_import_plan_scan(const RhPlatformRules *rules, const char *source_dir,
                                   RhErr *out_err)
 {
@@ -339,16 +383,40 @@ RhImportPlan *rh_import_plan_scan(const RhPlatformRules *rules, const char *sour
                 plan->skipped_media++;
             } else if (result->kind == RH_CLASSIFY_UNKNOWN) {
                 plan->skipped_unknown++;
-            } else {
-                RhImportPlanEntry *entry = entry_new("", NULL, item->display);
-                g_ptr_array_add(entry->roms, g_strdup(item->display));
-                g_ptr_array_add(entry->roms_raw, g_bytes_ref(item->raw));
-                if (result->kind == RH_CLASSIFY_ROM) {
-                    entry->ambiguous = result->ambiguous;
+            } else if (result->kind == RH_CLASSIFY_ARCHIVE) {
+                RhArchiveList *list = NULL;
+                RhErr list_err = rh_archive_list(full, &list);
+                if (list_err != RH_OK) {
+                    /* 列不出索引（损坏/不支持的容器）：按普通文件保留，不丢数据 */
+                    add_single_entry(plan, rules, source_dir, item, FALSE, FALSE,
+                                     container_format_for(item->display), NULL);
+                } else {
+                    GPtrArray *paths = g_ptr_array_new_with_free_func(g_free);
+                    for (guint k = 0; k < list->entries->len; k++) {
+                        RhArchiveEntry *e = g_ptr_array_index(list->entries, k);
+                        if (!e->is_dir)
+                            g_ptr_array_add(paths, g_strdup(e->pathname));
+                    }
+                    RhArchiveClassifyResult *ac = rh_classify_archive(rules, paths);
+                    if (ac->branch == RH_ARCHIVE_PATCHES)
+                        plan->skipped_patch_archives++;
+                    else if (ac->branch == RH_ARCHIVE_MIXED)
+                        plan->skipped_mixed_archives++;
+                    else if (ac->branch == RH_ARCHIVE_AMBIGUOUS)
+                        plan->skipped_ambiguous_archives++;
+                    else
+                        add_single_entry(plan, rules, source_dir, item,
+                                         FALSE,
+                                         ac->branch == RH_ARCHIVE_ARCADE,
+                                         container_format_for(item->display),
+                                         ac->platform);
+                    rh_archive_classify_free(ac);
+                    g_ptr_array_free(paths, TRUE);
+                    rh_archive_list_free(list);
                 }
-                resolve_platform(entry, rules);
-                fill_game_dir(entry, source_dir);
-                g_ptr_array_add(plan->entries, entry);
+            } else {
+                add_single_entry(plan, rules, source_dir, item,
+                                 result->ambiguous, FALSE, NULL, NULL);
             }
             rh_classify_result_free(result);
         }
@@ -627,6 +695,14 @@ static void remember_file(EntryWrites *writes, const gchar *path)
     g_ptr_array_add(writes->files, g_strdup(path));
 }
 
+/* 作业条目在库里的稳定标识：目录条目用子目录名，顶层文件用文件名。 */
+static const gchar *entry_label(const RhImportPlanEntry *entry)
+{
+    if (entry->source_subdir != NULL && *entry->source_subdir != '\0')
+        return entry->source_subdir;
+    return entry->name != NULL ? entry->name : "";
+}
+
 static void mark_job_item(RhStore *store, const RhImportExecOptions *options,
                           guint seq, const RhImportPlanEntry *entry,
                           const gchar *state, const gchar *target_id,
@@ -634,8 +710,7 @@ static void mark_job_item(RhStore *store, const RhImportExecOptions *options,
 {
     if (options->job_id <= 0)
         return;
-    store_job_item_set(store, options->job_id, (int)seq,
-                       entry->source_subdir != NULL ? entry->source_subdir : "",
+    store_job_item_set(store, options->job_id, (int)seq, entry_label(entry),
                        "import", entry->platform, target_id, state, message);
 }
 
@@ -733,6 +808,11 @@ static EntryOutcome execute_entry(RhStore *store, const RhPlatformRules *rules,
     game->game_main_name = g_strdup(entry->name);
     game->dir_path = g_strdup(entry->game_dir);
     game->is_multi_disc = multi_disc;
+    game->is_arcade = entry->is_arcade;
+    if (entry->rom_format != NULL) {
+        g_free(game->rom_format);
+        game->rom_format = g_strdup(entry->rom_format);
+    }
     g_free(game->patch_type);
     game->patch_type = patch_type_for(entry->patches);
 
@@ -875,8 +955,7 @@ static EntryOutcome execute_entry(RhStore *store, const RhPlatformRules *rules,
             err = store_game_insert(store, game, roms, media, NULL);
         if (err == RH_OK && options->job_id > 0)
             err = store_job_item_set(store, options->job_id, (int)seq,
-                                     entry->source_subdir != NULL
-                                         ? entry->source_subdir : "",
+                                     entry_label(entry),
                                      "import", entry->platform, game->id,
                                      "imported", NULL);
         if (err == RH_OK)
@@ -925,6 +1004,27 @@ RhErr rh_import_execute(RhStore *store, const RhPlatformRules *rules,
         }
 
         RhImportPlanEntry *entry = g_ptr_array_index(plan->entries, i);
+
+        /* 续做：同一作业里已完成的条目不再碰磁盘。标签用来源子目录/文件名，
+         * 不依赖扫描顺序。 */
+        if (options->job_id > 0) {
+            gchar *state = NULL;
+            store_job_item_state(store, options->job_id, entry_label(entry),
+                                 entry->platform, &state);
+            gboolean finished = state != NULL &&
+                (g_strcmp0(state, "imported") == 0 ||
+                 g_strcmp0(state, "skipped") == 0);
+            g_free(state);
+            if (finished) {
+                stats.imported++;
+                if (options->progress != NULL)
+                    options->progress(i + 1, total, entry->name,
+                                      options->user_data);
+                store_job_progress(store, options->job_id, (int)(i + 1));
+                continue;
+            }
+        }
+
         gchar *message = NULL;
         EntryOutcome outcome = execute_entry(store, rules, entry, options, i,
                                              &message);
@@ -943,6 +1043,13 @@ RhErr rh_import_execute(RhStore *store, const RhPlatformRules *rules,
             options->progress(i + 1, total, entry->name, options->user_data);
         if (options->job_id > 0)
             store_job_progress(store, options->job_id, (int)(i + 1));
+    }
+
+    if (options->job_id > 0) {
+        if (stats.cancelled)
+            store_job_set_state(store, options->job_id, "cancelled");
+        else
+            store_job_finish(store, options->job_id, NULL);
     }
 
     if (out_stats != NULL)

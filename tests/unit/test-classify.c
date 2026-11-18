@@ -83,10 +83,75 @@ static void test_archive_patch_media(void)
     rh_platform_rules_free(rules);
 }
 
+static RhArchiveClassifyResult *classify_entries(const RhPlatformRules *rules,
+                                                 const char *const *names,
+                                                 guint count)
+{
+    GPtrArray *paths = g_ptr_array_new_with_free_func(g_free);
+    for (guint i = 0; i < count; i++)
+        g_ptr_array_add(paths, g_strdup(names[i]));
+    RhArchiveClassifyResult *result = rh_classify_archive(rules, paths);
+    g_ptr_array_free(paths, TRUE);
+    return result;
+}
+
+static void test_archive_branches(void)
+{
+    RhPlatformRules *rules = load();
+
+    /* PSV：出现 sce_sys/ 或 PCSH* 路径，整体入库 */
+    const char *psv[] = { "PCSH00001/sce_sys/param.sfo", "PCSH00001/game.vpk" };
+    RhArchiveClassifyResult *r = classify_entries(rules, psv, G_N_ELEMENTS(psv));
+    g_assert_cmpint(r->branch, ==, RH_ARCHIVE_PSV);
+    rh_archive_classify_free(r);
+
+    /* 纯补丁包 */
+    const char *patches[] = { "fix.ips", "fix.bps" };
+    r = classify_entries(rules, patches, G_N_ELEMENTS(patches));
+    g_assert_cmpint(r->branch, ==, RH_ARCHIVE_PATCHES);
+    g_assert_cmpuint(r->rom_count, ==, 0);
+    rh_archive_classify_free(r);
+
+    /* 街机 ZIP：多个成员后缀命中 [arcade_rom_suffixes] */
+    const char *arcade[] = { "sf2.rom", "sf2.bin", "sf2.z80", "readme.txt" };
+    r = classify_entries(rules, arcade, G_N_ELEMENTS(arcade));
+    g_assert_cmpint(r->branch, ==, RH_ARCHIVE_ARCADE);
+    rh_archive_classify_free(r);
+
+    /* 二义性包：.bin 命中多个平台 */
+    const char *ambiguous[] = { "game.bin" };
+    r = classify_entries(rules, ambiguous, G_N_ELEMENTS(ambiguous));
+    g_assert_cmpint(r->branch, ==, RH_ARCHIVE_AMBIGUOUS);
+    g_assert_true(r->ambiguous);
+    rh_archive_classify_free(r);
+
+    /* 单 ROM 包：平台可从内部条目唯一确定 */
+    const char *single[] = { "Tetris (World).gb" };
+    r = classify_entries(rules, single, G_N_ELEMENTS(single));
+    g_assert_cmpint(r->branch, ==, RH_ARCHIVE_SINGLE_ROM);
+    g_assert_cmpstr(r->platform, ==, "gb");
+    rh_archive_classify_free(r);
+
+    /* 混合包：ROM 与媒体同包 */
+    const char *mixed[] = { "Tetris (World).gb", "cover.png" };
+    r = classify_entries(rules, mixed, G_N_ELEMENTS(mixed));
+    g_assert_cmpint(r->branch, ==, RH_ARCHIVE_MIXED);
+    rh_archive_classify_free(r);
+
+    /* 目录条目不参与计数 */
+    const char *with_dirs[] = { "gfx/", "gfx/Tetris (World).gb" };
+    r = classify_entries(rules, with_dirs, G_N_ELEMENTS(with_dirs));
+    g_assert_cmpint(r->branch, ==, RH_ARCHIVE_SINGLE_ROM);
+    rh_archive_classify_free(r);
+
+    rh_platform_rules_free(rules);
+}
+
 int main(int argc, char **argv)
 {
     rh_test_init(&argc, &argv);
     g_test_add_func("/classify/rom", test_rom);
     g_test_add_func("/classify/archive-patch-media", test_archive_patch_media);
+    g_test_add_func("/classify/archive-branches", test_archive_branches);
     return g_test_run();
 }
