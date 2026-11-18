@@ -540,6 +540,86 @@ static void test_migrate_v1_to_v2(void)
     g_free(dir);
 }
 
+/* v3 库打开时必须自动迁移到 v4，旧 DAT 行保留并补默认值。 */
+static void test_migrate_v3_to_v4(void)
+{
+    gchar *dir = g_dir_make_tmp("romham-store-XXXXXX", NULL);
+    g_assert_nonnull(dir);
+    gchar *path = g_build_filename(dir, "romhamster.db", NULL);
+
+    sqlite3 *db = NULL;
+    g_assert_cmpint(sqlite3_open(path, &db), ==, SQLITE_OK);
+    for (int i = 0; i < rh_schema_v1_sql_count; i++)
+        g_assert_cmpint(sqlite3_exec(db, rh_schema_v1_sql[i], NULL, NULL, NULL),
+                        ==, SQLITE_OK);
+    for (int i = 0; i < rh_schema_v2_sql_count; i++)
+        g_assert_cmpint(sqlite3_exec(db, rh_schema_v2_sql[i], NULL, NULL, NULL),
+                        ==, SQLITE_OK);
+    for (int i = 0; i < rh_schema_v3_sql_count; i++)
+        g_assert_cmpint(sqlite3_exec(db, rh_schema_v3_sql[i], NULL, NULL, NULL),
+                        ==, SQLITE_OK);
+
+    g_assert_cmpint(sqlite3_exec(db,
+        "INSERT INTO dats (id, platform, path, imported_at)"
+        " VALUES (1, 'gb', 'old.dat', '2020-01-01T00:00:00Z');",
+        NULL, NULL, NULL), ==, SQLITE_OK);
+    g_assert_cmpint(sqlite3_exec(db,
+        "INSERT INTO dat_entries (dat_id, game_name, rom_name, size, crc32)"
+        " VALUES (1, 'Old', 'old.bin', 16, 'aabbccdd');",
+        NULL, NULL, NULL), ==, SQLITE_OK);
+    g_assert_cmpint(sqlite3_exec(db, "PRAGMA user_version=3;", NULL, NULL, NULL),
+                    ==, SQLITE_OK);
+    sqlite3_close(db);
+
+    RhErr err = RH_ERR_INVALID;
+    RhStore *store = store_open(path, &err);
+    g_assert_cmpint(err, ==, RH_OK);
+    g_assert_nonnull(store);
+    g_assert_cmpint(store_schema_version(store), ==, RH_SCHEMA_VERSION);
+    g_assert_cmpint(store_schema_version(store), ==, 4);
+    g_assert_false(store_is_read_only(store));
+    store_close(store);
+
+    g_assert_cmpint(sqlite3_open(path, &db), ==, SQLITE_OK);
+    sqlite3_stmt *stmt = NULL;
+
+    /* 新列可直接查询；旧 DAT 尚未重导入，文件哈希保持 NULL。 */
+    g_assert_cmpint(sqlite3_prepare_v2(db,
+        "SELECT file_sha1 FROM dats WHERE id = 1;", -1, &stmt, NULL),
+        ==, SQLITE_OK);
+    g_assert_cmpint(sqlite3_step(stmt), ==, SQLITE_ROW);
+    g_assert_true(sqlite3_column_type(stmt, 0) == SQLITE_NULL);
+    sqlite3_finalize(stmt);
+
+    /* 旧条目由列默认值回填为 rom，原哈希与大小不动。 */
+    g_assert_cmpint(sqlite3_prepare_v2(db,
+        "SELECT entry_type, size, crc32 FROM dat_entries"
+        " WHERE dat_id = 1 AND rom_name = 'old.bin';", -1, &stmt, NULL),
+        ==, SQLITE_OK);
+    g_assert_cmpint(sqlite3_step(stmt), ==, SQLITE_ROW);
+    g_assert_cmpstr((const char *)sqlite3_column_text(stmt, 0), ==, "rom");
+    g_assert_cmpint(sqlite3_column_int(stmt, 1), ==, 16);
+    g_assert_cmpstr((const char *)sqlite3_column_text(stmt, 2), ==, "aabbccdd");
+    sqlite3_finalize(stmt);
+
+    gboolean found_size_crc32_index = FALSE;
+    g_assert_cmpint(sqlite3_prepare_v2(db,
+        "PRAGMA index_list(dat_entries);", -1, &stmt, NULL), ==, SQLITE_OK);
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char *name = (const char *)sqlite3_column_text(stmt, 1);
+        if (g_strcmp0(name, "idx_dat_entries_size_crc32") == 0)
+            found_size_crc32_index = TRUE;
+    }
+    sqlite3_finalize(stmt);
+    g_assert_true(found_size_crc32_index);
+
+    sqlite3_close(db);
+    remove_db_files(path);
+    g_rmdir(dir);
+    g_free(path);
+    g_free(dir);
+}
+
 int main(int argc, char **argv)
 {
     rh_test_init(&argc, &argv);
@@ -555,5 +635,6 @@ int main(int argc, char **argv)
     g_test_add_func("/store/jobs", test_jobs);
     g_test_add_func("/store/raw-bytes-roundtrip", test_raw_bytes_roundtrip);
     g_test_add_func("/store/migrate-v1-to-v2", test_migrate_v1_to_v2);
+    g_test_add_func("/store/migrate-v3-to-v4", test_migrate_v3_to_v4);
     return g_test_run();
 }

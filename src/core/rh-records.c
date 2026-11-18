@@ -112,6 +112,7 @@ void rh_dat_entry_free(RhDatEntry *entry)
     if (entry == NULL)
         return;
 
+    g_free(entry->entry_type);
     g_free(entry->game_name);
     g_free(entry->rom_name);
     g_free(entry->status);

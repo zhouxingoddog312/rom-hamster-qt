@@ -39,9 +39,11 @@ typedef struct {
     gboolean    escaped;          /* 有字节无法解码，已按 %NN 转义保留 */
     gboolean    xml_error;        /* 结构错误：已入库的是出错前解析到的部分 */
     gboolean    cancelled;
-    gint64      games;            /* 解析到的 game/machine 数 */
-    gint64      entry_count;      /* 实际入库的 dat_entries 行数 */
-    gint64      skipped;          /* 缺 rom 名/不在 game 内而被跳过的条目 */
+    gint64      games;            /* 解析到的 game/machine/resource 数 */
+    gint64      entry_count;      /* 实际入库的 dat_entries 行数（rom + disk） */
+    gint64      disk_entries;     /* 其中 entry_type = "disk" 的条目数（Clrmamepro disk 元素） */
+    gint64      skipped;          /* 缺 rom 名/不在 game 内/非法位置而被跳过的 rom 条目 */
+    gint64      sample_skipped;   /* 跳过的 sample 元素数（音频采样，非 ROM 匹配对象） */
     gint64      bad_fields;       /* 非空但非法的 size/哈希值个数 */
 } RhDatImportStats;
 
@@ -84,7 +86,11 @@ RhErr rh_dat_import(RhStore *store, const char *path,
 
 /*
  * 按校验值匹配。hash 为 NULL 或三种值都没有时返回 NONE。
- * 查询顺序 crc32 → sha1 → md5：前一种有命中就不再往下走。
+ *
+ * 查询顺序 sha1 → md5 → crc32（抗碰撞强到弱），每种算法都先按 size 缩小
+ * 范围；DAT 条目没有 size（<disk>、未给 size 的 rom）时不受 size 限制。
+ * 前一种算法有命中就不再往下走。
+ *
  * out_matches 返回 GPtrArray<RhDatMatch*>（调用方 g_ptr_array_unref）；
  * platform 非 NULL 时只在该平台的 DAT 内查。
  */

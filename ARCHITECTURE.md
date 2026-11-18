@@ -1,7 +1,11 @@
 # rom-hamster（C/C++ + Qt 6）架构与依赖说明
 
-> 版本：v0.7（2026-11-18）
+> 版本：v0.8（2026-11-18）
 > 本版修订：
+> 1. 吸收 DAT 生态调研结论：匹配顺序改为 `sha1 → md5 → crc32`（先按 size 缩小范围，无 size 条目豁免）；Redump `<disk>` 以 `entry_type='disk'` 入库（只取 name/sha1/md5），`<sample>` 只计数不入库；`dats.file_sha1` 记录 DAT 文件自身哈希；schema 升到 v4（`entry_type`、`file_sha1`、`(size, crc32)` 复合索引），新增 v3→v4 迁移。
+> 2. §3.5、§5、§7.5、§15.2 的匹配顺序与上述保持一致（刮削查询键同步为强到弱）。
+>
+> v0.7（2026-11-18）修订：
 > 1. 新增 §3.3/§3.4 的 v3 schema：`dat_entries` 改为代理主键 + `(dat_id, game_name, rom_name)` 唯一索引（rom 名只在 game 内唯一），补 `status/cloneof/romof/merge_name`；`dats` 增加 `encoding/skipped`；`roms` 增加 `dat_id`（匹配来源可追溯）。
 > 2. 新增 §15.2：DAT 文件编码判定与匹配取舍（声明优先、UTF-8 严格、GB18030 重来、`%NN` 兜底；单事务导入；多候选不替调用方选择）。
 >
@@ -32,7 +36,7 @@
 | 哈希 | `crc32`/`md5`/`sha1` 三列，导入只算 `dat_match_hash` 指定的一种 | §3.5 |
 | DAT | 全量入 `dats`/`dat_entries`，不保留扫文件路径 | §3.5 |
 | DAT 编码 | 声明优先；无声明 UTF-8 严格 → GB18030 重来 → `%NN` 兜底 | §15.2 |
-| DAT 匹配 | 只认校验值（crc32→sha1→md5），多候选返回二义不替调用方选择 | §15.2 |
+| DAT 匹配 | 只认校验值（先按 size 缩小范围，再按 sha1→md5→crc32），多候选返回二义不替调用方选择 | §15.2 |
 | 事务 | 每条目一个事务（记录 + `job_items` 状态同事务） | §3.5 §11 |
 | 并发 | 不加锁文件，靠 SQLite 串行化写 + `busy_timeout=5000` | §13 |
 | 模块边界 | `classify` 只判定不搬文件、`query` 只读、`store` 唯一持有 SQL | §5 |
@@ -453,8 +457,10 @@ CREATE VIRTUAL TABLE games_fts USING fts5(
   `(dat_id, game_name, rom_name)` 唯一索引，并补 MAME 的 `cloneof`/`romof`/`merge_name`。
   重建以"建新表 → 复制 → 删旧表 → 改名"完成，与其他迁移同在单事务内。此阶段
   `dat_entries` 尚未写入过用户数据，重建不涉及数据取舍。
+- **v3 → v4**：`dats` 加 `file_sha1`（识别原地替换的同名 DAT），`dat_entries` 加
+  `entry_type`（旧行默认 `rom`），并新建 `(size, crc32)` 复合索引。
 
-新建库先建 v1 再在同一事务里依次执行 v2、v3 的语句；旧库打开时按同一组语句单事务迁移，失败回滚并保留原库。
+新建库先建 v1 再在同一事务里依次执行 v2、v3、v4 的语句；旧库打开时按同一组语句单事务迁移，失败回滚并保留原库。
 
 ### 3.5 已定决策（不再讨论）
 
@@ -463,7 +469,7 @@ CREATE VIRTUAL TABLE games_fts USING fts5(
 | `tags` | 规范化到 `tags` + `game_tags` | 支持按标签筛选与计数；存逗号串只能 `LIKE`，`rpg` 会误命中 `jrpg` |
 | `roms` 哈希 | 三列都建；导入时只算 `dat_match_hash` 指定的那一种（默认 `crc32`），其余留 `NULL`，由 `verify --deep` 按需补算回填 | 反正 DAT 匹配要算同一种，顺手即可；避免导入时三次全量读盘 |
 | DAT | 全量入 `dats` / `dat_entries`，**不保留"直接扫 DAT 文件"的路径** | 两条路径必然行为分叉；入表后一次导入、多次索引查询 |
-| DAT 匹配键 | 只认校验值，顺序 `crc32 → sha1 → md5`；同哈希命中多条即返回全部候选（`RH_DAT_MATCH_AMBIGUOUS`），**不按文件名兜底、不替调用方挑一条** | 文件名在不同 game 下重复、parent/clone 共用 rom 是常态；按名字挑会把错误写进库 |
+| DAT 匹配键 | 只认校验值，`size > 0` 时先按 size 缩小范围（无 size 的 disk/nodump 条目豁免），哈希顺序 `sha1 → md5 → crc32`；同哈希命中多条即返回全部候选（`RH_DAT_MATCH_AMBIGUOUS`），**不按文件名兜底、不替调用方挑一条** | SHA1/MD5 抗碰撞能力强于 CRC32；文件名在不同 game 下重复、parent/clone 共用 rom 是常态，按名字挑会把错误写进库 |
 | DAT 导入事务 | **整份 DAT 一个事务**；取消/失败/编码重来全部回滚，库中不会出现半条 DAT | DAT 索引是批量重建而非逐条业务写入，单事务比逐批提交更快且能保证"要么完整、要么没有"；与 §3.5 的游戏记录"一条目一事务"不冲突 |
 | 事务 | **每个条目一个事务**（记录写入 + `job_items` 状态同事务）；"每 N 条"只作为进度上报频率 | 崩溃最多丢当前条目，且库与队列状态始终自洽；不做跨条目大事务 |
 | 全文检索 | FTS5 `trigram`（需 SQLite ≥ 3.34）；启动探测不到则降级 `LIKE` 子串，不报错 | Debian 12 = 3.40、Ubuntu 22.04 = 3.37 均满足；降级只损失子串命中精度 |
@@ -527,8 +533,9 @@ RhErr store_dat_finish(RhStore *store, gint64 dat_id, const char *name,
 RhErr store_dat_abort(RhStore *store, gint64 dat_id);
 RhErr store_dat_count(RhStore *store, gint64 *out);
 RhErr store_dat_find_by_hash(RhStore *store, const char *algo,
-                             const char *hash, const char *platform,
-                             GPtrArray **out);  /* GPtrArray<RhDatMatch*> */
+                             const char *hash, gint64 size,
+                             const char *platform,
+                             GPtrArray **out);  /* GPtrArray<RhDatMatch*>；size > 0 时精确过滤 */
 
 /* 作业 */
 RhErr store_job_create(RhCtx *ctx, const char *kind, int total, gint64 *job_id);
@@ -824,7 +831,7 @@ typedef struct RhImportHandler {
 
 **为什么不是现在写**：网络栈会改动 §8 依赖与 deb `Depends`；来源溯源要动 schema（v2）。把契约先写死，M3/M4 的导出与 GUI 就不必为"将来可能有网络媒体"预留分支。
 
-**将来真要做时，方向已定（离线优先）**：先做本地数据包导入（`manifest.tsv` + `media/`，按 crc32→md5→sha1 匹配，用户或社区自备，不随包分发版权素材），再做图片源（Libretro Thumbnails 目录按 ROM 名匹配），最后才考虑在线 API（ScreenScraper 需开发者凭证，境外源在境内网络可达性差异大）。在线源一律默认关闭、可覆盖 endpoint、失败不阻塞导入。
+**将来真要做时，方向已定（离线优先）**：先做本地数据包导入（`manifest.tsv` + `media/`，按 sha1→md5→crc32 匹配，用户或社区自备，不随包分发版权素材），再做图片源（Libretro Thumbnails 目录按 ROM 名匹配），最后才考虑在线 API（ScreenScraper 需开发者凭证，境外源在境内网络可达性差异大）。在线源一律默认关闭、可覆盖 endpoint、失败不阻塞导入。
 
 #### 7.5.1 数据型：`data/scrapers/<id>.conf`
 
@@ -844,9 +851,9 @@ max_retry   = 3
 
 [query]
 platform = %platform_id%      ; 走 [platform_map] 映射，不硬编码
-crc      = %crc32%
-md5      = %md5%
 sha1     = %sha1%
+md5      = %md5%
+crc      = %crc32%
 name     = %game_name%        ; 仅在哈希全无命中时退化使用
 language = %scrape_lang%
 
@@ -920,7 +927,7 @@ typedef struct RhScraper {
 
 #### 7.5.4 查询与写回策略（契约）
 
-1. 查询键优先 **crc32 → md5 → sha1**（与 `dat_match_hash` 解耦，刮削总是三选一按来源支持能力发），全无命中才用 `platform + name`，且名称先按 DAT 规范名归一（`game_main_name`），再退原始目录名。
+1. 查询键优先 **sha1 → md5 → crc32**（抗碰撞强到弱，与 DAT 匹配一致；与 `dat_match_hash` 解耦，刮削按来源支持能力发送可用键），全无命中才用 `platform + name`，且名称先按 DAT 规范名归一（`game_main_name`），再退原始目录名。
 2. 同一游戏多来源命中时按 `scrape_providers` 顺序取第一个，**不合并字段**（避免来源混搭出无法追溯的记录）。
 3. 媒体写回：`scrape_overwrite=false` 时同 `(game_id,kind)` 已有文件即跳过并计数 `skipped`；`true` 时先写临时文件再原子替换。
 4. 失败语义：单游戏失败只记 `failed` 并继续下一个，**绝不中断整批**；离线/超时按 `max_retry` 退避后放弃。
@@ -1343,11 +1350,11 @@ ROM_ROOT = /home/zhoux/roms
 已完成 `archive`（列表/解压/加密探测，11 用例，含 GBK 条目名与非法字节兜底）、
 `rh-fname`（6 用例）、`rh-hash`（流式单次读盘三算，批量复用同一遍读取，7 用例：
 空文件、已知向量、超过缓冲区的大文件、中文路径、批量、取消、错误路径）与
-`dat`（Logiqx 流式导入 + 哈希匹配，7 用例：正常样本、大文件分块进度、CRC 唯一命中
-与多候选二义、SHA1 兜底、缺字段/畸形 XML、取消、GB18030 与非法字节）。`import`
-预扫描与 `store` 已接入原始字节，schema 升到 v3（v1→v2→v3 迁移均有用例）。四组构建
-（Linux/Windows × CLI/GUI）通过；`ctest` Linux 17/17（78 用例）、Windows 15/15
-（74 用例）。下一步：`import` 执行阶段。
+`dat`（Logiqx 流式导入 + 哈希匹配，8 用例：正常样本、大文件分块进度、CRC 唯一命中
+与多候选二义、SHA1 兜底、缺字段/畸形 XML、取消、GB18030 与非法字节、Redump
+disk 与 sample）。`import` 预扫描与 `store` 已接入原始字节，schema 升到 v4
+（v1→v2→v3→v4 迁移均有用例）。四组构建（Linux/Windows × CLI/GUI）通过；`ctest`
+Linux 17/17（80 用例）、Windows 15/15（76 用例）。下一步：`import` 执行阶段。
 
 ### 14.1 M4 性能验收（量化）
 
@@ -1450,14 +1457,21 @@ DAT 文本不能假定 UTF-8：老中文 DAT 可能没有 XML 声明、内部是
 
 **解析**：GMarkup 逐块喂入（默认 64 KiB），内存占用与 DAT 大小无关；`<game>`（含
 MAME 的 `<machine>`）的 `name`/`cloneof`/`romof` 与 `<rom>` 的
-`name/size/crc/md5/sha1/status/merge` 原样保留。缺 rom 名的 `<rom>` 计入 `skipped`；
-非空但非法的 size/哈希值丢弃该字段并计入 `bad_fields`；XML 结构错误不整体失败，
-出错前解析到的条目照常入库并置 `xml_error`，一条都没有时返回 `RH_ERR_INVALID`。
+`name/size/crc/md5/sha1/status/merge` 原样保留，条目记为 `entry_type='rom'`。
+`status="nodump"` 是合法状态，即使没有任何哈希也保留条目。Redump 风格 `<disk>`
+以 `entry_type='disk'` 入库，只取 `name/sha1/md5`，继承 game 的 `cloneof/romof`，
+`size/crc32/status/merge_name` 保持 NULL。`<sample>` 是音频采样引用，不是 ROM 匹配
+对象，只计入 `sample_skipped`，不写 `dat_entries`；`entry_count` 只统计 rom + disk。
+缺名字的 rom/disk 计入 `skipped`；非空但非法的 size/哈希值丢弃该字段并计入
+`bad_fields`；XML 结构错误不整体失败，出错前解析到的条目照常入库并置 `xml_error`，
+一条都没有时返回 `RH_ERR_INVALID`。
 
-**匹配**：只认校验值，顺序 `crc32 → sha1 → md5`，前一种有命中就停；返回全部候选。
-候选数 0/1/>1 分别对应 `RH_DAT_MATCH_NONE/UNIQUE/AMBIGUOUS`，二义交给导入编排或
-用户处理。不按文件名匹配：同一 rom 名在不同 game 下重复、parent/clone 共用 rom 是
-常态，名字不具备唯一性。
+**匹配**：只认校验值。`size > 0` 时每次查询先按 size 缩小候选范围（DAT 条目没有
+size 时豁免，否则 disk 永远匹配不上），再按 `sha1 → md5 → crc32`（抗碰撞强到弱）
+查询，前一种有命中就停。`idx_dat_entries_size_crc32` 复合索引加速 size + crc32
+路径，sha1/md5 仍走各自哈希索引。查询返回全部候选，候选数 0/1/>1 分别对应
+`RH_DAT_MATCH_NONE/UNIQUE/AMBIGUOUS`，二义交给导入编排或用户处理。不按文件名匹配：
+同一 rom 名在不同 game 下重复、parent/clone 共用 rom 是常态，名字不具备唯一性。
 
 **取消与追溯**：进度回调按块触发，返回 FALSE 立即中止并回滚，库中不留该 DAT；
 `roms.dat_id` 指向 `dats.id`，`games.dat_source` 存 DAT 名，二者共同回答"这条匹配

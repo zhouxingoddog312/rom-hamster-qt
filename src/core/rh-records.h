@@ -54,6 +54,7 @@ typedef struct {
 
 /* dat_entries 的一行。rom 名只在 game 内唯一，跨 game 可重复。 */
 typedef struct {
+    gchar   *entry_type;    /* rom / disk / sample；NULL 视为 rom（v4 新增） */
     gchar   *game_name;     /* 所属 game；缺失时为空串 */
     gchar   *rom_name;
     gchar   *status;        /* good/baddump/nodump/verified，可 NULL */

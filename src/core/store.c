@@ -2,6 +2,7 @@
 
 #include <sqlite3.h>
 
+#include "rh-hash.h"
 #include "rh-records.h"
 #include "store-schema.h"
 
@@ -68,6 +69,14 @@ static RhErr apply_migrations(sqlite3 *db, int from)
                 return RH_ERR_MIGRATE;
         }
         version = 3;
+    }
+
+    if (version < 4) {
+        for (int i = 0; i < rh_schema_v4_sql_count; i++) {
+            if (exec_sql(db, rh_schema_v4_sql[i]) != RH_OK)
+                return RH_ERR_MIGRATE;
+        }
+        version = 4;
     }
 
     return set_user_version(db, version);
@@ -1087,12 +1096,23 @@ RhErr store_dat_begin(RhStore *store, const char *platform, const char *path,
     if (platform == NULL || path == NULL || out_id == NULL)
         return RH_ERR_INVALID;
 
+    /* 计算 DAT 文件自身 SHA1：用于识别原地替换同名 DAT。
+     * 读不到文件时静默跳过（file_sha1 写 NULL），不因此拒绝导入。 */
+    RhHashResult file_hash;
+    rh_hash_result_clear(&file_hash);
+    RhHashOptions hash_opts = { .flags = RH_HASH_SHA1 };
+    gchar *file_sha1 = NULL;
+    if (rh_hash_file(path, &hash_opts, &file_hash) == RH_OK && file_hash.has_sha1)
+        file_sha1 = g_strdup(file_hash.sha1);
+
     /* 同一 (platform, path) 重复导入 = 替换：先清旧索引，再刷新元数据。 */
     sqlite3_stmt *select = NULL;
     err = prepare(store->db, "SELECT id FROM dats WHERE platform = ? AND path = ?;",
                   &select);
-    if (err != RH_OK)
+    if (err != RH_OK) {
+        g_free(file_sha1);
         return err;
+    }
 
     bind_text(select, 1, platform);
     bind_text(select, 2, path);
@@ -1113,6 +1133,7 @@ RhErr store_dat_begin(RhStore *store, const char *platform, const char *path,
         if (err == RH_OK)
             err = prepare(store->db,
                           "UPDATE dats SET name = ?, version = ?, encoding = ?,"
+                          " file_sha1 = ?,"
                           " imported_at = strftime('%Y-%m-%dT%H:%M:%SZ','now'),"
                           " entry_count = 0, skipped = 0 WHERE id = ?;",
                           &stmt);
@@ -1120,16 +1141,17 @@ RhErr store_dat_begin(RhStore *store, const char *platform, const char *path,
             bind_text(stmt, 1, name);
             bind_text(stmt, 2, version);
             bind_text(stmt, 3, encoding);
-            sqlite3_bind_int64(stmt, 4, dat_id);
+            bind_text(stmt, 4, file_sha1);
+            sqlite3_bind_int64(stmt, 5, dat_id);
             err = sqlite3_step(stmt) == SQLITE_DONE ? RH_OK : RH_ERR_DB;
             sqlite3_finalize(stmt);
             stmt = NULL;
         }
     } else {
         err = prepare(store->db,
-                      "INSERT INTO dats (platform, path, name, version, encoding,"
+                      "INSERT INTO dats (platform, path, name, version, encoding, file_sha1,"
                       " imported_at, entry_count, skipped)"
-                      " VALUES (?,?,?,?,?, strftime('%Y-%m-%dT%H:%M:%SZ','now'), 0, 0);",
+                      " VALUES (?,?,?,?,?,?, strftime('%Y-%m-%dT%H:%M:%SZ','now'), 0, 0);",
                       &stmt);
         if (err == RH_OK) {
             bind_text(stmt, 1, platform);
@@ -1137,6 +1159,7 @@ RhErr store_dat_begin(RhStore *store, const char *platform, const char *path,
             bind_text(stmt, 3, name);
             bind_text(stmt, 4, version);
             bind_text(stmt, 5, encoding);
+            bind_text(stmt, 6, file_sha1);
             err = sqlite3_step(stmt) == SQLITE_DONE ? RH_OK : RH_ERR_DB;
             sqlite3_finalize(stmt);
             stmt = NULL;
@@ -1145,6 +1168,7 @@ RhErr store_dat_begin(RhStore *store, const char *platform, const char *path,
         }
     }
 
+    g_free(file_sha1);
     if (err == RH_OK)
         *out_id = dat_id;
     return err;
@@ -1165,9 +1189,9 @@ RhErr store_dat_entries_add(RhStore *store, gint64 dat_id, const GPtrArray *entr
     sqlite3_stmt *stmt = NULL;
     err = prepare(store->db,
                   "INSERT OR IGNORE INTO dat_entries"
-                  " (dat_id, game_name, rom_name, status, cloneof, romof,"
+                  " (dat_id, entry_type, game_name, rom_name, status, cloneof, romof,"
                   "  merge_name, size, crc32, md5, sha1)"
-                  " VALUES (?,?,?,?,?,?,?,?,?,?,?);",
+                  " VALUES (?,?,?,?,?,?,?,?,?,?,?,?);",
                   &stmt);
 
     for (guint i = 0; err == RH_OK && i < entries->len; i++) {
@@ -1180,19 +1204,20 @@ RhErr store_dat_entries_add(RhStore *store, gint64 dat_id, const GPtrArray *entr
         sqlite3_reset(stmt);
         sqlite3_clear_bindings(stmt);
         sqlite3_bind_int64(stmt, 1, dat_id);
-        bind_text(stmt, 2, entry->game_name != NULL ? entry->game_name : "");
-        bind_text(stmt, 3, entry->rom_name);
-        bind_text(stmt, 4, entry->status);
-        bind_text(stmt, 5, entry->cloneof);
-        bind_text(stmt, 6, entry->romof);
-        bind_text(stmt, 7, entry->merge_name);
+        bind_text(stmt, 2, entry->entry_type);
+        bind_text(stmt, 3, entry->game_name != NULL ? entry->game_name : "");
+        bind_text(stmt, 4, entry->rom_name);
+        bind_text(stmt, 5, entry->status);
+        bind_text(stmt, 6, entry->cloneof);
+        bind_text(stmt, 7, entry->romof);
+        bind_text(stmt, 8, entry->merge_name);
         if (entry->has_size)
-            sqlite3_bind_int64(stmt, 8, entry->size);
+            sqlite3_bind_int64(stmt, 9, entry->size);
         else
-            sqlite3_bind_null(stmt, 8);
-        bind_text(stmt, 9, entry->crc32);
-        bind_text(stmt, 10, entry->md5);
-        bind_text(stmt, 11, entry->sha1);
+            sqlite3_bind_null(stmt, 9);
+        bind_text(stmt, 10, entry->crc32);
+        bind_text(stmt, 11, entry->md5);
+        bind_text(stmt, 12, entry->sha1);
 
         if (sqlite3_step(stmt) != SQLITE_DONE) {
             g_log(RH_STORE_DOMAIN, G_LOG_LEVEL_WARNING, "写 dat_entries 失败: %s",
@@ -1321,22 +1346,23 @@ RhErr store_dat_count(RhStore *store, gint64 *out)
 static RhDatEntry *read_dat_entry_row(sqlite3_stmt *stmt, int offset)
 {
     RhDatEntry *entry = rh_dat_entry_new();
-    entry->game_name = column_str(stmt, offset + 0);
-    entry->rom_name = column_str(stmt, offset + 1);
-    entry->status = column_str(stmt, offset + 2);
-    entry->cloneof = column_str(stmt, offset + 3);
-    entry->romof = column_str(stmt, offset + 4);
-    entry->merge_name = column_str(stmt, offset + 5);
-    entry->has_size = sqlite3_column_type(stmt, offset + 6) != SQLITE_NULL;
-    entry->size = entry->has_size ? sqlite3_column_int64(stmt, offset + 6) : 0;
-    entry->crc32 = column_str(stmt, offset + 7);
-    entry->md5 = column_str(stmt, offset + 8);
-    entry->sha1 = column_str(stmt, offset + 9);
+    entry->entry_type = column_str(stmt, offset + 0);
+    entry->game_name = column_str(stmt, offset + 1);
+    entry->rom_name = column_str(stmt, offset + 2);
+    entry->status = column_str(stmt, offset + 3);
+    entry->cloneof = column_str(stmt, offset + 4);
+    entry->romof = column_str(stmt, offset + 5);
+    entry->merge_name = column_str(stmt, offset + 6);
+    entry->has_size = sqlite3_column_type(stmt, offset + 7) != SQLITE_NULL;
+    entry->size = entry->has_size ? sqlite3_column_int64(stmt, offset + 7) : 0;
+    entry->crc32 = column_str(stmt, offset + 8);
+    entry->md5 = column_str(stmt, offset + 9);
+    entry->sha1 = column_str(stmt, offset + 10);
     return entry;
 }
 
 RhErr store_dat_find_by_hash(RhStore *store, const char *algo, const char *hash,
-                             const char *platform, GPtrArray **out)
+                             gint64 size, const char *platform, GPtrArray **out)
 {
     if (out != NULL)
         *out = NULL;
@@ -1354,23 +1380,27 @@ RhErr store_dat_find_by_hash(RhStore *store, const char *algo, const char *hash,
     if (column == NULL)
         return RH_ERR_INVALID;
 
-    gchar *sql;
+    /* WHERE 条件：哈希 + size 可选 + platform 可选。
+     * size > 0 时先用 size 缩小碰撞面；size 为 NULL 的条目（<disk>、未给
+     * size 的 rom）不参与 size 过滤，否则盘片镜像永远匹配不上。 */
+    GString *where = g_string_new(NULL);
+    g_string_append_printf(where, "WHERE %s = ?", column);
+    if (size > 0)
+        g_string_append(where, " AND (e.size IS NULL OR e.size = ?)");
     if (platform != NULL)
-        sql = g_strdup_printf(
-            "SELECT e.dat_id, e.game_name, e.rom_name, e.status, e.cloneof,"
-            " e.romof, e.merge_name, e.size, e.crc32, e.md5, e.sha1,"
-            " d.name, d.version, d.path, d.platform"
-            " FROM dat_entries e JOIN dats d ON d.id = e.dat_id"
-            " WHERE %s = ? AND d.platform = ?"
-            " ORDER BY e.dat_id, e.game_name, e.rom_name;", column);
-    else
-        sql = g_strdup_printf(
-            "SELECT e.dat_id, e.game_name, e.rom_name, e.status, e.cloneof,"
-            " e.romof, e.merge_name, e.size, e.crc32, e.md5, e.sha1,"
-            " d.name, d.version, d.path, d.platform"
-            " FROM dat_entries e JOIN dats d ON d.id = e.dat_id"
-            " WHERE %s = ?"
-            " ORDER BY e.dat_id, e.game_name, e.rom_name;", column);
+        g_string_append(where, " AND d.platform = ?");
+
+    /* SELECT 顺序：dat_id + entry_type + game_name + ... + 4 个 DAT 字段。
+     * entry_type 加在 dat_id 之后，read_dat_entry_row 的 offset 从 1 开始。 */
+    gchar *sql = g_strdup_printf(
+        "SELECT e.dat_id, e.entry_type, e.game_name, e.rom_name, e.status, e.cloneof,"
+        " e.romof, e.merge_name, e.size, e.crc32, e.md5, e.sha1,"
+        " d.name, d.version, d.path, d.platform"
+        " FROM dat_entries e JOIN dats d ON d.id = e.dat_id"
+        " %s"
+        " ORDER BY e.dat_id, e.game_name, e.rom_name;",
+        where->str);
+    g_string_free(where, TRUE);
 
     sqlite3_stmt *stmt = NULL;
     RhErr err = prepare(store->db, sql, &stmt);
@@ -1379,8 +1409,13 @@ RhErr store_dat_find_by_hash(RhStore *store, const char *algo, const char *hash,
         return err;
 
     bind_text(stmt, 1, hash);
-    if (platform != NULL)
-        bind_text(stmt, 2, platform);
+    int next_param = 2;
+    if (size > 0) {
+        sqlite3_bind_int64(stmt, next_param++, size);
+    }
+    if (platform != NULL) {
+        bind_text(stmt, next_param++, platform);
+    }
 
     GPtrArray *matches = g_ptr_array_new_with_free_func(rh_dat_match_free_func);
     int rc;
@@ -1388,10 +1423,10 @@ RhErr store_dat_find_by_hash(RhStore *store, const char *algo, const char *hash,
         RhDatMatch *match = g_new0(RhDatMatch, 1);
         match->dat_id = sqlite3_column_int64(stmt, 0);
         match->entry = read_dat_entry_row(stmt, 1);
-        match->dat_name = column_str(stmt, 11);
-        match->dat_version = column_str(stmt, 12);
-        match->dat_path = column_str(stmt, 13);
-        match->platform = column_str(stmt, 14);
+        match->dat_name = column_str(stmt, 12);
+        match->dat_version = column_str(stmt, 13);
+        match->dat_path = column_str(stmt, 14);
+        match->platform = column_str(stmt, 15);
         g_ptr_array_add(matches, match);
     }
     if (rc != SQLITE_DONE)

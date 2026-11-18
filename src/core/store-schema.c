@@ -184,6 +184,25 @@ const char *const rh_schema_v3_sql[] = {
 const int rh_schema_v3_sql_count =
     (int)(sizeof(rh_schema_v3_sql) / sizeof(rh_schema_v3_sql[0]));
 
+/*
+ * v4 迁移（DAT 生态调研结论）：
+ * - dats.file_sha1：DAT 文件自身 SHA1，用于识别原地替换同名 DAT
+ * - dat_entries.entry_type：rom/disk/sample，缺省 rom，v3 全量回填
+ * - idx_dat_entries_size_crc32：(size, crc32) 复合索引，先 size 缩小范围
+ *   再 hash，提升大 DAT 匹配性能（RomVault 默认走 size+CRC+MD5+SHA1 防碰撞）
+ */
+const char *const rh_schema_v4_sql[] = {
+    "ALTER TABLE dats ADD COLUMN file_sha1 TEXT",
+
+    "ALTER TABLE dat_entries ADD COLUMN entry_type TEXT DEFAULT 'rom'",
+
+    "CREATE INDEX idx_dat_entries_size_crc32"
+    " ON dat_entries(size, crc32)"
+};
+
+const int rh_schema_v4_sql_count =
+    (int)(sizeof(rh_schema_v4_sql) / sizeof(rh_schema_v4_sql[0]));
+
 const char *const rh_schema_fts_sql[] = {
     "CREATE VIRTUAL TABLE games_fts USING fts5("
     "  name, game_main_name, description,"

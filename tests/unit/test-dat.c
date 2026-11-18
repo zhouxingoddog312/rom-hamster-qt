@@ -141,7 +141,7 @@ static void test_logiqx_basic(void)
 
     /* crc32 唯一命中：名字、大小、状态、DAT 来源都对得上 */
     GPtrArray *matches = NULL;
-    g_assert_cmpint(store_dat_find_by_hash(store, "crc32", "aabbccdd", "gb",
+    g_assert_cmpint(store_dat_find_by_hash(store, "crc32", "aabbccdd", 1024, "gb",
                                            &matches), ==, RH_OK);
     g_assert_cmpuint(matches->len, ==, 1);
     RhDatMatch *match = g_ptr_array_index(matches, 0);
@@ -159,7 +159,7 @@ static void test_logiqx_basic(void)
     /* 同一 crc32 两条候选：多义而不是随便挑一个 */
     g_ptr_array_unref(matches);
     matches = NULL;
-    g_assert_cmpint(store_dat_find_by_hash(store, "crc32", "11111111", NULL,
+    g_assert_cmpint(store_dat_find_by_hash(store, "crc32", "11111111", 16, NULL,
                                            &matches), ==, RH_OK);
     g_assert_cmpuint(matches->len, ==, 2);
     g_ptr_array_unref(matches);
@@ -179,7 +179,7 @@ static void test_logiqx_basic(void)
     /* parent/clone 结构原样保留 */
     g_assert_cmpint(store_dat_find_by_hash(
                         store, "sha1", "89abcdef0123456789abcdef0123456789abcdef",
-                        NULL, &matches), ==, RH_OK);
+                        2048, NULL, &matches), ==, RH_OK);
     g_assert_cmpuint(matches->len, ==, 1);
     match = g_ptr_array_index(matches, 0);
     g_assert_cmpstr(match->entry->cloneof, ==, "Alpha (World)");
@@ -262,7 +262,7 @@ static void test_large_stream(void)
     g_assert_cmpuint(progress.last_done, ==, file_size);
 
     GPtrArray *matches = NULL;
-    g_assert_cmpint(store_dat_find_by_hash(store, "crc32", "00004e1f", "gb",
+    g_assert_cmpint(store_dat_find_by_hash(store, "crc32", "00004e1f", 20000, "gb",
                                            &matches), ==, RH_OK); /* 19999 */
     g_assert_cmpuint(matches->len, ==, 1);
     g_ptr_array_unref(matches);
@@ -368,7 +368,7 @@ static void test_missing_fields_and_malformed(void)
 
     /* 坏哈希被丢弃，条目本身保留 */
     GPtrArray *matches = NULL;
-    g_assert_cmpint(store_dat_find_by_hash(store, "crc32", "33333333", "gb",
+    g_assert_cmpint(store_dat_find_by_hash(store, "crc32", "33333333", 0, "gb",
                                            &matches), ==, RH_OK);
     g_assert_cmpuint(matches->len, ==, 1);
     g_assert_cmpstr(((RhDatMatch *)g_ptr_array_index(matches, 0))->entry->game_name,
@@ -433,7 +433,7 @@ static void test_cancel(void)
     g_assert_cmpint(dat_count, ==, 0);
 
     GPtrArray *matches = NULL;
-    g_assert_cmpint(store_dat_find_by_hash(store, "crc32", "00000000", NULL,
+    g_assert_cmpint(store_dat_find_by_hash(store, "crc32", "00000000", 0, NULL,
                                            &matches), ==, RH_OK);
     g_assert_cmpuint(matches->len, ==, 0);
     g_ptr_array_unref(matches);
@@ -498,7 +498,7 @@ static void test_gbk_dat(void)
     g_assert_cmpint(stats.entry_count, ==, 2);
 
     GPtrArray *matches = NULL;
-    g_assert_cmpint(store_dat_find_by_hash(store, "crc32", "aa000001", NULL,
+    g_assert_cmpint(store_dat_find_by_hash(store, "crc32", "aa000001", 10, NULL,
                                            &matches), ==, RH_OK);
     g_assert_cmpuint(matches->len, ==, 1);
     RhDatMatch *match = g_ptr_array_index(matches, 0);
@@ -524,7 +524,7 @@ static void test_gbk_dat(void)
     g_assert_false(stats.encoding_guessed);
     g_assert_cmpstr(stats.encoding, ==, "gb18030");
 
-    g_assert_cmpint(store_dat_find_by_hash(store, "crc32", "bb000001", NULL,
+    g_assert_cmpint(store_dat_find_by_hash(store, "crc32", "bb000001", 1, NULL,
                                            &matches), ==, RH_OK);
     g_assert_cmpuint(matches->len, ==, 1);
     match = g_ptr_array_index(matches, 0);
@@ -565,11 +565,111 @@ static void test_invalid_bytes_escaped(void)
     g_assert_cmpint(stats.entry_count, ==, 1);
 
     GPtrArray *matches = NULL;
-    g_assert_cmpint(store_dat_find_by_hash(store, "crc32", "cc000001", NULL,
+    g_assert_cmpint(store_dat_find_by_hash(store, "crc32", "cc000001", 3, NULL,
                                            &matches), ==, RH_OK);
     g_assert_cmpuint(matches->len, ==, 1);
     RhDatMatch *match = g_ptr_array_index(matches, 0);
     g_assert_cmpstr(match->entry->game_name, ==, "Bad%FFName");
+    g_ptr_array_unref(matches);
+
+    store_close(store);
+    cleanup_dir(dir);
+    g_free(dat_path);
+    g_free(dir);
+}
+
+/* ---------------------------------------------------------------------------
+ * Redump disk 与 MAME sample：disk 入库，sample 只计数
+ * ------------------------------------------------------------------------- */
+
+static void test_disk_and_sample(void)
+{
+    static const char *disk_sha1 = "1111111111111111111111111111111111111111";
+    static const char *disk_md5 = "22222222222222222222222222222222";
+    static const char *dat_text =
+        "<?xml version=\"1.0\"?>\n<datafile>\n"
+        "<header><name>Disc DAT</name><version>1</version></header>\n"
+        "<game name=\"Disc Game\" cloneof=\"Base Game\" romof=\"Base Game\">\n"
+        "  <rom name=\"track.bin\" size=\"1024\" crc=\"AABBCCDD\""
+        " md5=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\""
+        " sha1=\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"/>\n"
+        "  <disk name=\"disc.chd\""
+        " sha1=\"1111111111111111111111111111111111111111\""
+        " md5=\"22222222222222222222222222222222\"/>\n"
+        "  <sample name=\"audio.wav\"/>\n"
+        "</game>\n</datafile>\n";
+
+    gchar *dir = g_dir_make_tmp("romham-dat-XXXXXX", NULL);
+    g_assert_nonnull(dir);
+    gchar *dat_path = write_text(dir, "disc.dat", dat_text);
+    RhStore *store = open_store_in(dir, NULL);
+
+    RhDatImportOptions options = {0};
+    options.platform = "psx";
+    RhDatImportStats stats;
+    g_assert_cmpint(rh_dat_import(store, dat_path, &options, &stats), ==, RH_OK);
+    g_assert_cmpint(stats.games, ==, 1);
+    g_assert_cmpint(stats.entry_count, ==, 2); /* rom + disk，不含 sample */
+    g_assert_cmpint(stats.disk_entries, ==, 1);
+    g_assert_cmpint(stats.sample_skipped, ==, 1);
+    g_assert_cmpint(stats.skipped, ==, 0);
+    g_assert_cmpint(stats.bad_fields, ==, 0);
+
+    /* disk 没有 size/crc32，sha1/md5 与 parent 关系必须保留。 */
+    GPtrArray *matches = NULL;
+    g_assert_cmpint(store_dat_find_by_hash(store, "sha1", disk_sha1, 0, "psx",
+                                           &matches), ==, RH_OK);
+    g_assert_cmpuint(matches->len, ==, 1);
+    RhDatMatch *match = g_ptr_array_index(matches, 0);
+    RhDatEntry *entry = match->entry;
+    g_assert_cmpstr(entry->entry_type, ==, "disk");
+    g_assert_cmpstr(entry->game_name, ==, "Disc Game");
+    g_assert_cmpstr(entry->rom_name, ==, "disc.chd");
+    g_assert_false(entry->has_size);
+    g_assert_null(entry->crc32);
+    g_assert_null(entry->status);
+    g_assert_null(entry->merge_name);
+    g_assert_cmpstr(entry->md5, ==, disk_md5);
+    g_assert_cmpstr(entry->sha1, ==, disk_sha1);
+    g_assert_cmpstr(entry->cloneof, ==, "Base Game");
+    g_assert_cmpstr(entry->romof, ==, "Base Game");
+    g_ptr_array_unref(matches);
+
+    /* 同时有三种哈希时 sha1 优先：命中 disk，而不是 crc32 对应的 rom。
+     * size 非零也必须命中：disk 没有 size，不能因 size 过滤被排除。 */
+    RhHashResult hash;
+    memset(&hash, 0, sizeof hash);
+    hash.size = 4096;
+    hash.has_sha1 = TRUE;
+    g_strlcpy(hash.sha1, disk_sha1, sizeof hash.sha1);
+    hash.has_md5 = TRUE;
+    g_strlcpy(hash.md5, disk_md5, sizeof hash.md5);
+    hash.has_crc32 = TRUE;
+    hash.crc32 = 0xAABBCCDDu;
+
+    matches = NULL;
+    g_assert_cmpint(rh_dat_match(store, &hash, "psx", &matches, NULL),
+                    ==, RH_DAT_MATCH_UNIQUE);
+    match = g_ptr_array_index(matches, 0);
+    g_assert_cmpstr(match->entry->entry_type, ==, "disk");
+    g_assert_cmpstr(match->entry->rom_name, ==, "disc.chd");
+    g_ptr_array_unref(matches);
+
+    /* rom 条目类型正确，size 参数会精确缩小候选。 */
+    matches = NULL;
+    g_assert_cmpint(store_dat_find_by_hash(store, "crc32", "aabbccdd", 1024,
+                                           "psx", &matches), ==, RH_OK);
+    g_assert_cmpuint(matches->len, ==, 1);
+    match = g_ptr_array_index(matches, 0);
+    g_assert_cmpstr(match->entry->entry_type, ==, "rom");
+    g_assert_true(match->entry->has_size);
+    g_assert_cmpint(match->entry->size, ==, 1024);
+    g_ptr_array_unref(matches);
+
+    matches = NULL;
+    g_assert_cmpint(store_dat_find_by_hash(store, "crc32", "aabbccdd", 2048,
+                                           "psx", &matches), ==, RH_OK);
+    g_assert_cmpuint(matches->len, ==, 0);
     g_ptr_array_unref(matches);
 
     store_close(store);
@@ -588,5 +688,6 @@ int main(int argc, char **argv)
     g_test_add_func("/dat/cancel", test_cancel);
     g_test_add_func("/dat/gbk-encoding", test_gbk_dat);
     g_test_add_func("/dat/invalid-bytes-escaped", test_invalid_bytes_escaped);
+    g_test_add_func("/dat/disk-and-sample", test_disk_and_sample);
     return g_test_run();
 }

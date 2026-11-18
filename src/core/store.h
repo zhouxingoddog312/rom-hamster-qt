@@ -91,8 +91,10 @@ RhErr store_dat_abort(RhStore *store, gint64 dat_id);
 RhErr store_dat_count(RhStore *store, gint64 *out);
 
 /* algo 只接受 crc32 / md5 / sha1；platform 为 NULL 表示不限。
+ * size > 0 时额外要求 size 吻合（size 为 NULL 的条目不受限制）；
+ * size = 0 不加条件。
  * 返回 GPtrArray<RhDatMatch*>，调用方用 g_ptr_array_unref 释放。 */
 RhErr store_dat_find_by_hash(RhStore *store, const char *algo, const char *hash,
-                             const char *platform, GPtrArray **out);
+                             gint64 size, const char *platform, GPtrArray **out);
 
 #endif /* RH_STORE_H */

@@ -311,7 +311,9 @@ typedef struct {
 
     gint64       games;
     gint64       parsed_entries;
+    gint64       disk_entries;   /* Clrmamepro disk 元素计数 */
     gint64       skipped;
+    gint64       sample_skipped; /* sample 元素跳过计数 */
     gint64       bad_fields;
 
     GString     *header_name;
@@ -428,6 +430,7 @@ static void handle_rom(ParseState *state, const gchar **names,
     }
 
     RhDatEntry *entry = rh_dat_entry_new();
+    entry->entry_type = g_strdup("rom");
     entry->game_name = g_strdup(state->game_name);
     entry->rom_name = trimmed_dup(rom_name);
     entry->status = trimmed_dup(attr_get(names, values, "status"));
@@ -467,6 +470,53 @@ static void handle_rom(ParseState *state, const gchar **names,
 
     g_ptr_array_add(state->batch, entry);
     state->parsed_entries++;
+
+    if (state->batch->len >= state->batch_size) {
+        RhErr err = flush_batch(state);
+        if (err != RH_OK)
+            state->store_error = err;
+    }
+}
+
+/*
+ * <disk> 元素：Redump 风格盘片镜像。与 <rom> 的区别——
+ *   - 只有 name / sha1 / md5；没有 crc32、size、status、cloneof、merge
+ *   - 匹配时不能走 size 优先路径，但 sha1/md5 哈希匹配照常
+ */
+static void handle_disk(ParseState *state, const gchar **names,
+                        const gchar **values)
+{
+    if (!state->in_game || state->game_malformed) {
+        state->skipped++;
+        return;
+    }
+
+    const gchar *disk_name = attr_get(names, values, "name");
+    if (disk_name == NULL || disk_name[0] == '\0') {
+        state->skipped++;
+        return;
+    }
+
+    RhDatEntry *entry = rh_dat_entry_new();
+    entry->entry_type = g_strdup("disk");
+    entry->game_name = g_strdup(state->game_name);
+    entry->rom_name = trimmed_dup(disk_name);
+    /* disk 无 status / size / crc32 / merge；保持默认 NULL/0 */
+    entry->cloneof = g_strdup(state->cloneof);
+    entry->romof = g_strdup(state->romof);
+
+    const gchar *md5 = attr_get(names, values, "md5");
+    const gchar *sha1 = attr_get(names, values, "sha1");
+    entry->md5 = normalize_hash(md5, 32);
+    entry->sha1 = normalize_hash(sha1, 40);
+    if (md5 != NULL && md5[0] != '\0' && entry->md5 == NULL)
+        state->bad_fields++;
+    if (sha1 != NULL && sha1[0] != '\0' && entry->sha1 == NULL)
+        state->bad_fields++;
+
+    g_ptr_array_add(state->batch, entry);
+    state->parsed_entries++;
+    state->disk_entries++;
 
     if (state->batch->len >= state->batch_size) {
         RhErr err = flush_batch(state);
@@ -520,6 +570,10 @@ static void markup_start(GMarkupParseContext *context, const gchar *element,
 
     if (g_strcmp0(element, "rom") == 0)
         handle_rom(state, names, values);
+    else if (g_strcmp0(element, "disk") == 0)
+        handle_disk(state, names, values);
+    else if (g_strcmp0(element, "sample") == 0)
+        state->sample_skipped++;
 }
 
 static void markup_end(GMarkupParseContext *context, const gchar *element,
@@ -827,6 +881,8 @@ RhErr rh_dat_import(RhStore *store, const char *path,
     stats.games = state.games;
     stats.skipped = state.skipped;
     stats.bad_fields = state.bad_fields;
+    stats.disk_entries = state.disk_entries;
+    stats.sample_skipped = state.sample_skipped;
     stats.cancelled = outcome == PARSE_CANCEL;
     stats.xml_error = outcome == PARSE_XML_ERROR;
 
@@ -919,7 +975,10 @@ RhDatMatchKind rh_dat_match(RhStore *store, const RhHashResult *hash,
         return RH_DAT_MATCH_NONE;
     }
 
-    /* 校验值为准：crc32 → sha1 → md5，前一种有命中就停。 */
+    /* 抗碰撞优先：sha1 → md5 → crc32，前一种有命中就停。
+     * sha1 是 DAT 生态的事实标准（No-Intro / Redump 都要求），碰撞概率最低；
+     * crc32 无密码学安全性，仅作为最后兜底（部分旧 DAT 只有 crc）。
+     * 每次查询都先按 size 缩小范围（store_dat_find_by_hash 的 size 参数）。 */
     typedef struct {
         const char *algo;
         gboolean    available;
@@ -934,9 +993,9 @@ RhDatMatchKind rh_dat_match(RhStore *store, const RhHashResult *hash,
     }
 
     Probe probes[3] = {
-        { "crc32", crc != NULL, crc },
         { "sha1", hash->has_sha1 && hash->sha1[0] != '\0', (gchar *)hash->sha1 },
-        { "md5", hash->has_md5 && hash->md5[0] != '\0', (gchar *)hash->md5 }
+        { "md5",  hash->has_md5 && hash->md5[0] != '\0',   (gchar *)hash->md5 },
+        { "crc32", crc != NULL, crc }
     };
 
     for (int i = 0; i < 3; i++) {
@@ -945,7 +1004,7 @@ RhDatMatchKind rh_dat_match(RhStore *store, const RhHashResult *hash,
 
         GPtrArray *matches = NULL;
         RhErr err = store_dat_find_by_hash(store, probes[i].algo, probes[i].value,
-                                           platform, &matches);
+                                           (gint64)hash->size, platform, &matches);
         if (err != RH_OK) {
             if (out_err != NULL)
                 *out_err = err;
