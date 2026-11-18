@@ -16,7 +16,9 @@ typedef enum {
     RH_ERR_DB = 4,        /* SQLite 打开/执行失败 */
     RH_ERR_SCHEMA_TOO_NEW = 5, /* 库由更高版本的 rom-hamster 创建 */
     RH_ERR_MIGRATE = 6,   /* schema 迁移失败 */
-    RH_ERR_UNSUPPORTED = 7 /* 平台或功能不支持 */
+    RH_ERR_UNSUPPORTED = 7, /* 平台、功能或格式不支持 */
+    RH_ERR_ENCRYPTED = 8,   /* 压缩包已加密，需要密码 */
+    RH_ERR_NOT_FOUND = 9    /* 目标条目/对象不存在 */
 } RhErr;
 
 /* 稳定的英文短描述，供日志与 CLI 使用；核心不据此拼用户文案。 */

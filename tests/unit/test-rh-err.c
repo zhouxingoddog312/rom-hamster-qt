@@ -9,6 +9,8 @@ static void test_err_str(void)
     g_assert_cmpstr(rh_err_str(RH_ERR_INVALID), ==, "invalid argument");
     g_assert_cmpstr(rh_err_str(RH_ERR_SCHEMA_TOO_NEW), ==,
                     "database schema is newer than this build");
+    g_assert_cmpstr(rh_err_str(RH_ERR_ENCRYPTED), ==, "archive is encrypted");
+    g_assert_cmpstr(rh_err_str(RH_ERR_NOT_FOUND), ==, "not found");
     g_assert_cmpstr(rh_err_str((RhErr)999), ==, "unknown error");
 }
 

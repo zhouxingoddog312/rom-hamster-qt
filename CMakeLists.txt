@@ -59,6 +59,7 @@ add_library(romham SHARED
     src/core/platform.c
     src/core/library.c
     src/core/classify.c
+    src/core/rh-archive.c
     src/core/import.c
     src/core/store.c
     src/core/store-schema.c
@@ -198,6 +199,14 @@ if(BUILD_TESTING)
     target_compile_definitions(test-import PRIVATE
         RH_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
     add_test(NAME core/import COMMAND test-import)
+
+    add_executable(test-archive tests/unit/test-archive.c)
+    target_link_libraries(test-archive PRIVATE
+        romham PkgConfig::GLIB2 PkgConfig::LIBARCHIVE)
+    target_compile_definitions(test-archive PRIVATE
+        RH_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data"
+        RH_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")
+    add_test(NAME core/archive COMMAND test-archive)
 
     add_test(NAME core/no-gui-linkage
         COMMAND ${CMAKE_COMMAND}

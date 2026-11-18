@@ -168,7 +168,7 @@ rom-hamster/
 │  │  ├─ rh-config.h/.c        # 五层配置加载与持久化
 │  │  ├─ platform.h/.c         # 规则解析、平台判定、媒体识别、导出平台名映射
 │  │  ├─ classify.h/.c         # 单文件分类分流
-│  │  ├─ archive.h/.c          # libarchive：列表/解压/加密探测/打包
+│  │  ├─ rh-archive.h/.c       # libarchive：列表/解压/加密探测/打包（避开 <archive.h>）
 │  │  ├─ store.h/.c            # 唯一 SQL 入口
 │  │  ├─ store-schema.h        # DDL + 迁移版本表
 │  │  ├─ dat.h/.c              # Logiqx DAT 导入与哈希匹配
