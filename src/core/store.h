@@ -37,6 +37,7 @@ void store_close(RhStore *store);
 
 int store_schema_version(const RhStore *store);
 gboolean store_is_read_only(const RhStore *store);
+gboolean store_in_transaction(const RhStore *store);
 
 /* ---------------------------------------------------------------------------
  * 事务：一条记录一个事务（§3.5）。已处于事务中时不会再嵌套开启。
@@ -72,5 +73,26 @@ gint64     store_games_count(RhStore *store, const RhGameFilter *filter, RhErr *
 RhErr store_job_create(RhStore *store, const char *kind, int total, gint64 *out_id);
 RhErr store_job_progress(RhStore *store, gint64 job_id, int done);
 RhErr store_job_finish(RhStore *store, gint64 job_id, const char *error);
+
+/* ---------------------------------------------------------------------------
+ * DAT：XML 解析归 dat.c，这里只落库与按哈希查（§5.1 边界表）。
+ * store_dat_begin 对同一 (platform, path) 是"替换"语义：旧索引先清空，
+ * dats.id 保持不变，已有 roms.dat_id 仍然有效。
+ * store_dat_abort 删除整条 DAT，并把引用它的 roms.dat_id 置 NULL。
+ * ------------------------------------------------------------------------- */
+RhErr store_dat_begin(RhStore *store, const char *platform, const char *path,
+                      const char *name, const char *version,
+                      const char *encoding, gint64 *out_id);
+RhErr store_dat_entries_add(RhStore *store, gint64 dat_id,
+                            const GPtrArray *entries); /* RhDatEntry* */
+RhErr store_dat_finish(RhStore *store, gint64 dat_id, const char *name,
+                       const char *version, gint64 skipped, gint64 *out_count);
+RhErr store_dat_abort(RhStore *store, gint64 dat_id);
+RhErr store_dat_count(RhStore *store, gint64 *out);
+
+/* algo 只接受 crc32 / md5 / sha1；platform 为 NULL 表示不限。
+ * 返回 GPtrArray<RhDatMatch*>，调用方用 g_ptr_array_unref 释放。 */
+RhErr store_dat_find_by_hash(RhStore *store, const char *algo, const char *hash,
+                             const char *platform, GPtrArray **out);
 
 #endif /* RH_STORE_H */

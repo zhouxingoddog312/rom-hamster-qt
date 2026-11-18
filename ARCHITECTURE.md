@@ -1,7 +1,11 @@
 # rom-hamster（C/C++ + Qt 6）架构与依赖说明
 
-> 版本：v0.6（2026-11-18）
+> 版本：v0.7（2026-11-18）
 > 本版修订：
+> 1. 新增 §3.3/§3.4 的 v3 schema：`dat_entries` 改为代理主键 + `(dat_id, game_name, rom_name)` 唯一索引（rom 名只在 game 内唯一），补 `status/cloneof/romof/merge_name`；`dats` 增加 `encoding/skipped`；`roms` 增加 `dat_id`（匹配来源可追溯）。
+> 2. 新增 §15.2：DAT 文件编码判定与匹配取舍（声明优先、UTF-8 严格、GB18030 重来、`%NN` 兜底；单事务导入；多候选不替调用方选择）。
+>
+> v0.6（2026-11-18）修订：
 > 1. 新增 §15.1：文件名编码兼容是 M2 必做项——压缩包条目名与磁盘文件名统一按 UTF-8 → GB18030 → `%NN` 转义判定，显示与原始字节并存；schema 升到 v2（`dir_path_raw` / `filename_raw` BLOB）并实现 v1→v2 迁移。
 >
 > v0.5（2026-11-16）修订：
@@ -27,6 +31,8 @@
 | `tags` | 规范化到 `tags` + `game_tags` | §3.5 |
 | 哈希 | `crc32`/`md5`/`sha1` 三列，导入只算 `dat_match_hash` 指定的一种 | §3.5 |
 | DAT | 全量入 `dats`/`dat_entries`，不保留扫文件路径 | §3.5 |
+| DAT 编码 | 声明优先；无声明 UTF-8 严格 → GB18030 重来 → `%NN` 兜底 | §15.2 |
+| DAT 匹配 | 只认校验值（crc32→sha1→md5），多候选返回二义不替调用方选择 | §15.2 |
 | 事务 | 每条目一个事务（记录 + `job_items` 状态同事务） | §3.5 §11 |
 | 并发 | 不加锁文件，靠 SQLite 串行化写 + `busy_timeout=5000` | §13 |
 | 模块边界 | `classify` 只判定不搬文件、`query` 只读、`store` 唯一持有 SQL | §5 |
@@ -315,6 +321,7 @@ CREATE TABLE roms (
   crc32    TEXT,
   md5      TEXT,
   sha1     TEXT,
+  dat_id   INTEGER REFERENCES dats(id), -- v3：该 ROM 匹配来自哪个 DAT
   sort     INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (game_id, filename)
 );
@@ -349,18 +356,26 @@ CREATE TABLE dats (
   version      TEXT,
   imported_at  TEXT NOT NULL,
   entry_count  INTEGER,
+  encoding     TEXT,                     -- v3：实际解码方式（utf-8/gb18030/声明值）
+  skipped      INTEGER,                  -- v3：缺 rom 名等被跳过的条目数
   UNIQUE (platform, path)
 );
 CREATE TABLE dat_entries (
-  dat_id    INTEGER NOT NULL REFERENCES dats(id) ON DELETE CASCADE,
-  game_name TEXT,
-  rom_name  TEXT NOT NULL,
-  size      INTEGER,
-  crc32     TEXT,
-  md5       TEXT,
-  sha1      TEXT,
-  PRIMARY KEY (dat_id, rom_name)
+  id         INTEGER PRIMARY KEY,        -- v3：代理主键
+  dat_id     INTEGER NOT NULL REFERENCES dats(id) ON DELETE CASCADE,
+  game_name  TEXT NOT NULL DEFAULT '',   -- rom 名只在 game 内唯一
+  rom_name   TEXT NOT NULL,
+  status     TEXT,                       -- good/baddump/nodump/verified
+  cloneof    TEXT,                       -- MAME parent/clone
+  romof      TEXT,
+  merge_name TEXT,
+  size       INTEGER,
+  crc32      TEXT,
+  md5        TEXT,
+  sha1       TEXT
 );
+CREATE UNIQUE INDEX idx_dat_entry_key
+  ON dat_entries(dat_id, game_name, rom_name);
 
 -- 导入作业：崩溃后可续
 CREATE TABLE jobs (
@@ -430,7 +445,16 @@ CREATE VIRTUAL TABLE games_fts USING fts5(
 
 升级动作本身不迁移用户数据（§9.4），只做 schema 版本检查。
 
-已落地的迁移：**v1 → v2**（为 `games`/`roms`/`media` 增加 `*_raw BLOB` 列）。新建库先建 v1 再在同一事务里执行 v2 的 `ALTER TABLE`；旧库打开时按同一组语句单事务迁移，失败回滚并保留原库。
+已落地的迁移：
+
+- **v1 → v2**：为 `games`/`roms`/`media` 增加 `*_raw BLOB` 列。
+- **v2 → v3**：`dats` 加 `encoding`/`skipped`，`roms` 加 `dat_id`；`dat_entries` 删除旧主键
+  `(dat_id, rom_name)`（真实 DAT 中同一 rom 名会在不同 game 下重复），重建为代理主键 +
+  `(dat_id, game_name, rom_name)` 唯一索引，并补 MAME 的 `cloneof`/`romof`/`merge_name`。
+  重建以"建新表 → 复制 → 删旧表 → 改名"完成，与其他迁移同在单事务内。此阶段
+  `dat_entries` 尚未写入过用户数据，重建不涉及数据取舍。
+
+新建库先建 v1 再在同一事务里依次执行 v2、v3 的语句；旧库打开时按同一组语句单事务迁移，失败回滚并保留原库。
 
 ### 3.5 已定决策（不再讨论）
 
@@ -439,6 +463,8 @@ CREATE VIRTUAL TABLE games_fts USING fts5(
 | `tags` | 规范化到 `tags` + `game_tags` | 支持按标签筛选与计数；存逗号串只能 `LIKE`，`rpg` 会误命中 `jrpg` |
 | `roms` 哈希 | 三列都建；导入时只算 `dat_match_hash` 指定的那一种（默认 `crc32`），其余留 `NULL`，由 `verify --deep` 按需补算回填 | 反正 DAT 匹配要算同一种，顺手即可；避免导入时三次全量读盘 |
 | DAT | 全量入 `dats` / `dat_entries`，**不保留"直接扫 DAT 文件"的路径** | 两条路径必然行为分叉；入表后一次导入、多次索引查询 |
+| DAT 匹配键 | 只认校验值，顺序 `crc32 → sha1 → md5`；同哈希命中多条即返回全部候选（`RH_DAT_MATCH_AMBIGUOUS`），**不按文件名兜底、不替调用方挑一条** | 文件名在不同 game 下重复、parent/clone 共用 rom 是常态；按名字挑会把错误写进库 |
+| DAT 导入事务 | **整份 DAT 一个事务**；取消/失败/编码重来全部回滚，库中不会出现半条 DAT | DAT 索引是批量重建而非逐条业务写入，单事务比逐批提交更快且能保证"要么完整、要么没有"；与 §3.5 的游戏记录"一条目一事务"不冲突 |
 | 事务 | **每个条目一个事务**（记录写入 + `job_items` 状态同事务）；"每 N 条"只作为进度上报频率 | 崩溃最多丢当前条目，且库与队列状态始终自洽；不做跨条目大事务 |
 | 全文检索 | FTS5 `trigram`（需 SQLite ≥ 3.34）；启动探测不到则降级 `LIKE` 子串，不报错 | Debian 12 = 3.40、Ubuntu 22.04 = 3.37 均满足；降级只损失子串命中精度 |
 
@@ -492,13 +518,17 @@ RhErr store_tag_list(RhCtx *ctx, GPtrArray **out);    /* 供筛选下拉用 */
 RhErr store_game_tags(RhCtx *ctx, const char *game_id, GPtrArray **out);
 
 /* DAT：XML 解析归 dat.c（§5.1 边界表），store 只负责落库 */
-RhErr store_dat_begin(RhCtx *ctx, const char *platform, const char *path,
-                      const char *name, const char *version, gint64 *dat_id);
-RhErr store_dat_entries_add(RhCtx *ctx, gint64 dat_id, GPtrArray *entries);
-RhErr store_dat_finish(RhCtx *ctx, gint64 dat_id, gint64 entry_count);
-RhErr store_dat_count(RhCtx *ctx, gint64 *out);
-RhErr store_dat_find_by_hash(RhCtx *ctx, const char *algo,
-                             const char *hash, GPtrArray **out);
+RhErr store_dat_begin(RhStore *store, const char *platform, const char *path,
+                      const char *name, const char *version,
+                      const char *encoding, gint64 *out_id);
+RhErr store_dat_entries_add(RhStore *store, gint64 dat_id, GPtrArray *entries);
+RhErr store_dat_finish(RhStore *store, gint64 dat_id, const char *name,
+                       const char *version, gint64 skipped, gint64 *out_count);
+RhErr store_dat_abort(RhStore *store, gint64 dat_id);
+RhErr store_dat_count(RhStore *store, gint64 *out);
+RhErr store_dat_find_by_hash(RhStore *store, const char *algo,
+                             const char *hash, const char *platform,
+                             GPtrArray **out);  /* GPtrArray<RhDatMatch*> */
 
 /* 作业 */
 RhErr store_job_create(RhCtx *ctx, const char *kind, int total, gint64 *job_id);
@@ -576,7 +606,7 @@ typedef struct {
 | `rh-fname` | 判定名字编码，给出显示名与原始字节 | 不改名、不碰磁盘、不猜平台 |
 | `rh-hash` | 单次顺序读盘，按需同时算 CRC32/MD5/SHA1 | 不判断文件类型、不写库、不决定重算策略 |
 | `archive` | 压缩包列表/解压/加密探测/打包 | 不知道"ROM 是什么"，不判定平台 |
-| `dat` | Logiqx 解析、建 `dat_entries`、按哈希查 | 不改游戏记录，只返回匹配结果 |
+| `dat` | Logiqx 解析、建 `dat_entries`、按哈希查 | 不改游戏记录，只返回匹配结果；**不按名字匹配、不替调用方消解二义** |
 | `import` | 唯一编排者：队列、归属、命名、m3u、落库 | 不做判定（调 `classify`/`platform`）、不做解压（调 `archive`） |
 | `query` | 只读检索、排序、筛选 | **绝不写库** |
 | `detail` | 组装只读 `RhGameDetail` | 不格式化文字、不写库、不删文件 |
@@ -1311,11 +1341,13 @@ ROM_ROOT = /home/zhoux/roms
 **M2 进度（2026-11-18）**
 
 已完成 `archive`（列表/解压/加密探测，11 用例，含 GBK 条目名与非法字节兜底）、
-`rh-fname`（6 用例）与 `rh-hash`（流式单次读盘三算，批量复用同一遍读取，7 用例：
-空文件、已知向量、超过缓冲区的大文件、中文路径、批量、取消、错误路径）；`import`
-预扫描与 `store` 已接入原始字节，schema 升到 v2 并实现 v1→v2 迁移。四组构建
-（Linux/Windows × CLI/GUI）通过；`ctest` Linux 16/16（71 用例）、Windows 14/14
-（67 用例）。下一步：`dat` → `import` 执行阶段。
+`rh-fname`（6 用例）、`rh-hash`（流式单次读盘三算，批量复用同一遍读取，7 用例：
+空文件、已知向量、超过缓冲区的大文件、中文路径、批量、取消、错误路径）与
+`dat`（Logiqx 流式导入 + 哈希匹配，7 用例：正常样本、大文件分块进度、CRC 唯一命中
+与多候选二义、SHA1 兜底、缺字段/畸形 XML、取消、GB18030 与非法字节）。`import`
+预扫描与 `store` 已接入原始字节，schema 升到 v3（v1→v2→v3 迁移均有用例）。四组构建
+（Linux/Windows × CLI/GUI）通过；`ctest` Linux 17/17（78 用例）、Windows 15/15
+（74 用例）。下一步：`import` 执行阶段。
 
 ### 14.1 M4 性能验收（量化）
 
@@ -1397,6 +1429,39 @@ GB18030 只是概率最高的猜测，猜错时改名等于把文件永久变成
 
 **解压策略**：我们自己的解压按显示名落盘（UTF-8），双端得到同一个合法名字；原始
 条目名仍保留在列表结果与库记录里。这条规则只约束"新建文件"，不触碰用户已有文件。
+
+### 15.2 DAT 文件编码与匹配（M2）
+
+DAT 文本不能假定 UTF-8：老中文 DAT 可能没有 XML 声明、内部是 GBK/GB18030 字节。
+`dat` 的判定顺序：
+
+1. **声明优先**：XML 声明里写了 `encoding` 就按声明解码（`g_iconv`）。声明值不可用
+   （转换器打不开，或声明与实际字节不符）直接返回错误，不静默换别的编码——声明是
+   作者给出的契约，悄悄改解释方式会掩盖数据本身的问题。
+2. **无声明、开头是合法 UTF-8**：按 UTF-8 严格解码。若正文后段出现非法字节（常见于
+   前 64 KiB 全 ASCII 的 GBK DAT），回滚整份 DAT 并以 GB18030 重新解析一次。
+3. **无声明、开头就非法**：直接按 GB18030 解码，标记为「编码推测」。
+4. GB18030 也解不开的字节：按 `%NN` 转义保留（与 §15.1 同一表示），置 `escaped`；
+   条目不会因此消失。
+
+第 2 步的"整份重来"只在必要时发生：导入是单事务，回滚后旧 DAT 索引原样保留，不会
+出现半份数据。`dats.encoding` 记录实际采用的方式，`dats.skipped` 记录缺 rom 名等被
+跳过的条目，便于换 DAT 后对比。
+
+**解析**：GMarkup 逐块喂入（默认 64 KiB），内存占用与 DAT 大小无关；`<game>`（含
+MAME 的 `<machine>`）的 `name`/`cloneof`/`romof` 与 `<rom>` 的
+`name/size/crc/md5/sha1/status/merge` 原样保留。缺 rom 名的 `<rom>` 计入 `skipped`；
+非空但非法的 size/哈希值丢弃该字段并计入 `bad_fields`；XML 结构错误不整体失败，
+出错前解析到的条目照常入库并置 `xml_error`，一条都没有时返回 `RH_ERR_INVALID`。
+
+**匹配**：只认校验值，顺序 `crc32 → sha1 → md5`，前一种有命中就停；返回全部候选。
+候选数 0/1/>1 分别对应 `RH_DAT_MATCH_NONE/UNIQUE/AMBIGUOUS`，二义交给导入编排或
+用户处理。不按文件名匹配：同一 rom 名在不同 game 下重复、parent/clone 共用 rom 是
+常态，名字不具备唯一性。
+
+**取消与追溯**：进度回调按块触发，返回 FALSE 立即中止并回滚，库中不留该 DAT；
+`roms.dat_id` 指向 `dats.id`，`games.dat_source` 存 DAT 名，二者共同回答"这条匹配
+来自哪份 DAT"，换 DAT 后可重算。
 
 ---
 

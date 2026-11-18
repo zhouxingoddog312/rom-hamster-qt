@@ -101,3 +101,48 @@ void rh_media_file_free_func(gpointer data)
 {
     rh_media_file_free(data);
 }
+
+RhDatEntry *rh_dat_entry_new(void)
+{
+    return g_new0(RhDatEntry, 1);
+}
+
+void rh_dat_entry_free(RhDatEntry *entry)
+{
+    if (entry == NULL)
+        return;
+
+    g_free(entry->game_name);
+    g_free(entry->rom_name);
+    g_free(entry->status);
+    g_free(entry->cloneof);
+    g_free(entry->romof);
+    g_free(entry->merge_name);
+    g_free(entry->crc32);
+    g_free(entry->md5);
+    g_free(entry->sha1);
+    g_free(entry);
+}
+
+void rh_dat_entry_free_func(gpointer data)
+{
+    rh_dat_entry_free(data);
+}
+
+void rh_dat_match_free(RhDatMatch *match)
+{
+    if (match == NULL)
+        return;
+
+    rh_dat_entry_free(match->entry);
+    g_free(match->dat_name);
+    g_free(match->dat_version);
+    g_free(match->dat_path);
+    g_free(match->platform);
+    g_free(match);
+}
+
+void rh_dat_match_free_func(gpointer data)
+{
+    rh_dat_match_free(data);
+}

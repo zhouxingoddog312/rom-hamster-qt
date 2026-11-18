@@ -48,8 +48,34 @@ typedef struct {
     gchar   *crc32;
     gchar   *md5;
     gchar   *sha1;
+    gint64   dat_id;        /* 0 表示 NULL：本条 ROM 的匹配来自哪个 DAT */
     gint     sort;
 } RhRomFile;
+
+/* dat_entries 的一行。rom 名只在 game 内唯一，跨 game 可重复。 */
+typedef struct {
+    gchar   *game_name;     /* 所属 game；缺失时为空串 */
+    gchar   *rom_name;
+    gchar   *status;        /* good/baddump/nodump/verified，可 NULL */
+    gchar   *cloneof;       /* MAME 结构：父 game，可 NULL */
+    gchar   *romof;         /* 共用 ROM 的 game，可 NULL */
+    gchar   *merge_name;    /* 与父 game 共用的 rom 名，可 NULL */
+    gboolean has_size;
+    gint64   size;
+    gchar   *crc32;         /* 小写十六进制，可 NULL */
+    gchar   *md5;
+    gchar   *sha1;
+} RhDatEntry;
+
+/* 按哈希查询的匹配视图（dat_entries JOIN dats），不是表。 */
+typedef struct {
+    gint64      dat_id;
+    RhDatEntry *entry;
+    gchar      *dat_name;
+    gchar      *dat_version;
+    gchar      *dat_path;
+    gchar      *platform;
+} RhDatMatch;
 
 typedef struct {
     gchar   *kind;          /* 见 rh_media_kind_names */
@@ -72,5 +98,12 @@ void       rh_rom_file_free_func(gpointer data);
 RhMediaFile *rh_media_file_new(void);
 void         rh_media_file_free(RhMediaFile *media);
 void         rh_media_file_free_func(gpointer data);
+
+RhDatEntry *rh_dat_entry_new(void);
+void        rh_dat_entry_free(RhDatEntry *entry);
+void        rh_dat_entry_free_func(gpointer data);
+
+void        rh_dat_match_free(RhDatMatch *match);
+void        rh_dat_match_free_func(gpointer data);
 
 #endif /* RH_RECORDS_H */

@@ -510,7 +510,7 @@ static void test_migrate_v1_to_v2(void)
     RhStore *store = store_open(path, &err);
     g_assert_cmpint(err, ==, RH_OK);
     g_assert_nonnull(store);
-    g_assert_cmpint(store_schema_version(store), ==, 2);
+    g_assert_cmpint(store_schema_version(store), ==, RH_SCHEMA_VERSION);
     g_assert_false(store_is_read_only(store));
 
     RhGame *old = store_game_get(store, "old00001", &err);

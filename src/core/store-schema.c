@@ -135,6 +135,55 @@ const char *const rh_schema_v2_sql[] = {
 const int rh_schema_v2_sql_count =
     (int)(sizeof(rh_schema_v2_sql) / sizeof(rh_schema_v2_sql[0]));
 
+/*
+ * v3：DAT 阶段。
+ *
+ * 1) dats 记录 DAT 文件本身的编码判定与跳过条目数，换 DAT 后可对比；
+ * 2) roms.dat_id 记录这条 ROM 的匹配来自哪个 DAT（NULL = 未匹配）；
+ * 3) dat_entries 旧主键 (dat_id, rom_name) 与真实 DAT 冲突：同一 ROM 名
+ *    在不同 game 下重复是常态（MAME parent/clone 尤甚）。改为代理主键 +
+ *    (dat_id, game_name, rom_name) 唯一索引，并保留 status/cloneof/romof/merge。
+ *    dat_entries 在本阶段之前从未写入用户数据，重建不涉及数据取舍；
+ *    迁移仍按"先复制再改名"在同事务内完成。
+ */
+const char *const rh_schema_v3_sql[] = {
+    "ALTER TABLE dats ADD COLUMN encoding TEXT",
+    "ALTER TABLE dats ADD COLUMN skipped INTEGER",
+    "ALTER TABLE roms ADD COLUMN dat_id INTEGER REFERENCES dats(id)",
+
+    "CREATE TABLE dat_entries_v3 ("
+    "  id         INTEGER PRIMARY KEY,"
+    "  dat_id     INTEGER NOT NULL REFERENCES dats(id) ON DELETE CASCADE,"
+    "  game_name  TEXT NOT NULL DEFAULT '',"
+    "  rom_name   TEXT NOT NULL,"
+    "  status     TEXT,"
+    "  cloneof    TEXT,"
+    "  romof      TEXT,"
+    "  merge_name TEXT,"
+    "  size       INTEGER,"
+    "  crc32      TEXT,"
+    "  md5        TEXT,"
+    "  sha1       TEXT"
+    ")",
+
+    "INSERT INTO dat_entries_v3"
+    " (dat_id, game_name, rom_name, size, crc32, md5, sha1)"
+    " SELECT dat_id, COALESCE(game_name, ''), rom_name, size, crc32, md5, sha1"
+    " FROM dat_entries",
+
+    "DROP TABLE dat_entries",
+    "ALTER TABLE dat_entries_v3 RENAME TO dat_entries",
+
+    "CREATE UNIQUE INDEX idx_dat_entry_key"
+    " ON dat_entries(dat_id, game_name, rom_name)",
+    "CREATE INDEX idx_dat_crc32 ON dat_entries(crc32)",
+    "CREATE INDEX idx_dat_md5   ON dat_entries(md5)",
+    "CREATE INDEX idx_dat_sha1  ON dat_entries(sha1)"
+};
+
+const int rh_schema_v3_sql_count =
+    (int)(sizeof(rh_schema_v3_sql) / sizeof(rh_schema_v3_sql[0]));
+
 const char *const rh_schema_fts_sql[] = {
     "CREATE VIRTUAL TABLE games_fts USING fts5("
     "  name, game_main_name, description,"
