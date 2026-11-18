@@ -73,6 +73,7 @@ typedef struct {
     const gchar *root;        /* 库根目录，UTF-8 */
     const gchar *source_dir;  /* 预扫描时的来源根目录，UTF-8 */
     gboolean     match_dat;   /* TRUE：复制时算 CRC32 并查已导入的 DAT */
+    gboolean     generate_m3u;/* TRUE：多碟游戏生成 <游戏名>.m3u */
     gint64       job_id;      /* >0：条目状态与游戏记录同事务写 job_items */
     RhImportCancelFn cancel;  /* 每个条目开始时检查，返回 TRUE 取消 */
     gpointer     cancel_data;

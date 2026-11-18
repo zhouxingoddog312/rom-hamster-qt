@@ -531,6 +531,69 @@ static gboolean name_is_archive(const RhPlatformRules *rules, const gchar *filen
     return archive;
 }
 
+/* 通用补丁扩展名；其余被判为补丁的视为平台专属（如 .ips32）。 */
+static gboolean patch_ext_is_generic(const gchar *ext)
+{
+    static const gchar *const generic[] = {
+        ".ips", ".bps", ".ups", ".ppf", ".xdelta", ".xdelta3", ".patch"
+    };
+    for (gsize i = 0; i < G_N_ELEMENTS(generic); i++) {
+        if (g_strcmp0(ext, generic[i]) == 0)
+            return TRUE;
+    }
+    return FALSE;
+}
+
+static gchar *patch_type_for(const GPtrArray *patches)
+{
+    if (patches == NULL || patches->len == 0)
+        return g_strdup("");
+
+    gboolean generic = FALSE;
+    gboolean platform = FALSE;
+    for (guint i = 0; i < patches->len; i++) {
+        gchar *ext = rh_str_extension(g_ptr_array_index(patches, i));
+        if (ext == NULL) {
+            platform = TRUE;
+        } else if (patch_ext_is_generic(ext)) {
+            generic = TRUE;
+        } else {
+            platform = TRUE;
+        }
+        g_free(ext);
+    }
+    if (generic && platform)
+        return g_strdup("mixed");
+    return g_strdup(generic ? "generic" : "platform");
+}
+
+static gchar *m3u_name_for(const RhImportPlanEntry *entry)
+{
+    gchar *safe = rh_str_sanitize_component(entry->name);
+    gchar *name = g_strconcat(safe, ".m3u", NULL);
+    g_free(safe);
+    return name;
+}
+
+static RhErr write_text_atomic(const gchar *dst, const gchar *text,
+                              gchar **out_error)
+{
+    gchar *tmp = g_strdup_printf("%s.romham-part", dst);
+    if (!g_file_set_contents(tmp, text, -1, NULL)) {
+        *out_error = g_strdup("写入 m3u 失败");
+        g_free(tmp);
+        return RH_ERR_IO;
+    }
+    if (g_rename(tmp, dst) != 0) {
+        *out_error = g_strdup_printf("m3u 改名失败：%s", g_strerror(errno));
+        g_remove(tmp);
+        g_free(tmp);
+        return RH_ERR_IO;
+    }
+    g_free(tmp);
+    return RH_OK;
+}
+
 /* CRC32 命中唯一 DAT 条目时回填来源；二义/未命中都不挑。 */
 static void match_rom(RhStore *store, const RhImportPlanEntry *entry,
                       RhRomFile *rom, RhGame *game, guint32 crc, gint64 size)
@@ -596,6 +659,25 @@ static EntryOutcome execute_entry(RhStore *store, const RhPlatformRules *rules,
         return ENTRY_SKIPPED;
     }
 
+    /* 碟号识别：至少两个不同碟号才算多碟，避免把 cue/bin 误判成多碟。 */
+    gboolean disc_seen[100] = {FALSE};
+    gint disc_count = 0;
+    gint max_disc = 0;
+    for (guint i = 0; i < entry->roms->len; i++) {
+        int disc = 0;
+        if (rh_str_parse_disc(g_ptr_array_index(entry->roms, i), &disc) &&
+            disc > 0 && disc < 100) {
+            if (!disc_seen[disc]) {
+                disc_seen[disc] = TRUE;
+                disc_count++;
+            }
+            if (disc > max_disc)
+                max_disc = disc;
+        }
+    }
+    gboolean multi_disc = disc_count >= 2;
+    gchar *m3u_name = NULL;
+
     /* 先查冲突：任一目标文件已存在就整条跳过，绝不覆盖。 */
     for (guint i = 0; i < entry->roms->len; i++) {
         gchar *dst = target_path(options, entry, g_ptr_array_index(entry->roms, i));
@@ -626,9 +708,22 @@ static EntryOutcome execute_entry(RhStore *store, const RhPlatformRules *rules,
         }
     }
 
+    if (multi_disc && options->generate_m3u) {
+        m3u_name = m3u_name_for(entry);
+        gchar *dst = target_path(options, entry, m3u_name);
+        gboolean exists = g_file_test(dst, G_FILE_TEST_EXISTS);
+        g_free(dst);
+        if (exists) {
+            g_free(m3u_name);
+            *out_message = g_strdup("目标 m3u 已存在");
+            return ENTRY_SKIPPED;
+        }
+    }
+
     RhGame *game = rh_game_new();
     game->id = new_game_id(store);
     if (game->id == NULL) {
+        g_free(m3u_name);
         rh_game_free(game);
         *out_message = g_strdup("无法生成游戏 ID");
         return ENTRY_FAILED;
@@ -637,6 +732,9 @@ static EntryOutcome execute_entry(RhStore *store, const RhPlatformRules *rules,
     game->name = g_strdup(entry->name);
     game->game_main_name = g_strdup(entry->name);
     game->dir_path = g_strdup(entry->game_dir);
+    game->is_multi_disc = multi_disc;
+    g_free(game->patch_type);
+    game->patch_type = patch_type_for(entry->patches);
 
     GPtrArray *roms = g_ptr_array_new_with_free_func(
         (GDestroyNotify)rh_rom_file_free);
@@ -683,6 +781,9 @@ static EntryOutcome execute_entry(RhStore *store, const RhPlatformRules *rules,
         rom->size = size;
         rom->crc32 = g_strdup_printf("%08x", crc);
         rom->sort = (gint)i;
+        int disc = 0;
+        if (rh_str_parse_disc(display, &disc) && disc > 0 && disc < 100)
+            rom->disc_no = disc;
         if (options->match_dat && !name_is_archive(rules, display))
             match_rom(store, entry, rom, game, crc, size);
         g_ptr_array_add(roms, rom);
@@ -748,6 +849,25 @@ static EntryOutcome execute_entry(RhStore *store, const RhPlatformRules *rules,
         }
         g_free(dst);
     }
+
+    /* 多碟：按碟号顺序生成 m3u，内容只列带碟号的 ROM。 */
+    if (err == RH_OK && m3u_name != NULL) {
+        GString *playlist = g_string_new(NULL);
+        for (gint disc = 1; disc <= max_disc; disc++) {
+            for (guint i = 0; i < roms->len; i++) {
+                RhRomFile *rom = g_ptr_array_index(roms, i);
+                if (rom->disc_no == disc)
+                    g_string_append_printf(playlist, "%s\n", rom->filename);
+            }
+        }
+        gchar *dst = target_path(options, entry, m3u_name);
+        err = write_text_atomic(dst, playlist->str, &error);
+        if (err == RH_OK)
+            remember_file(&writes, dst);
+        g_free(dst);
+        g_string_free(playlist, TRUE);
+    }
+    g_free(m3u_name);
 
     if (err == RH_OK) {
         err = store_begin(store);

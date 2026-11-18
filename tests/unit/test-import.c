@@ -669,6 +669,75 @@ static void test_execute_cancel(void)
     g_free(lib);
 }
 
+static void test_execute_multidisc(void)
+{
+    RhPlatformRules *rules = load();
+    gchar *src = g_dir_make_tmp("romham-src-XXXXXX", NULL);
+    gchar *lib = g_dir_make_tmp("romham-lib-XXXXXX", NULL);
+    write_file(src, "gb/Multi (Disc 1).gb", "one");
+    write_file(src, "gb/Multi (Disc 2).gb", "two");
+    write_file(src, "gb/fix.ips", "g");
+
+    RhStore *store = open_store_at(lib);
+    RhErr err = RH_OK;
+    RhImportPlan *plan = rh_import_plan_scan(rules, src, &err);
+    g_assert_cmpint(err, ==, RH_OK);
+    g_assert_cmpuint(plan->entries->len, ==, 1);
+    RhImportPlanEntry *entry = g_ptr_array_index(plan->entries, 0);
+    g_assert_cmpuint(entry->roms->len, ==, 2);
+    g_assert_cmpuint(entry->patches->len, ==, 1);
+
+    RhImportExecOptions options = {0};
+    options.root = lib;
+    options.source_dir = src;
+    options.generate_m3u = TRUE;
+    RhImportExecStats stats;
+    g_assert_cmpint(rh_import_execute(store, rules, plan, &options, &stats),
+                    ==, RH_OK);
+    g_assert_cmpuint(stats.imported, ==, 1);
+
+    RhGameFilter filter = {0};
+    GPtrArray *games = store_games_list(store, &filter, &err);
+    g_assert_cmpuint(games->len, ==, 1);
+    RhGame *game = g_ptr_array_index(games, 0);
+    g_assert_true(game->is_multi_disc);
+    g_assert_cmpstr(game->patch_type, ==, "generic");
+    gchar *game_id = g_strdup(game->id);
+
+    GPtrArray *roms = store_roms_for_game(store, game_id, &err);
+    g_assert_cmpuint(roms->len, ==, 2);
+    gint disc_sum = 0;
+    for (guint i = 0; i < roms->len; i++) {
+        RhRomFile *rom = g_ptr_array_index(roms, i);
+        g_assert_cmpint(rom->disc_no, >, 0);
+        disc_sum += rom->disc_no;
+    }
+    g_assert_cmpint(disc_sum, ==, 3);
+    g_ptr_array_unref(roms);
+
+    gchar *m3u = g_build_filename(lib, "gb", "gb", "gb.m3u", NULL);
+    g_assert_true(g_file_test(m3u, G_FILE_TEST_IS_REGULAR));
+    gchar *content = NULL;
+    g_assert_true(g_file_get_contents(m3u, &content, NULL, NULL));
+    g_assert_cmpstr(content, ==,
+                    "Multi (Disc 1).gb\nMulti (Disc 2).gb\n");
+    g_free(content);
+    gchar *part = g_strdup_printf("%s.romham-part", m3u);
+    g_assert_false(g_file_test(part, G_FILE_TEST_EXISTS));
+    g_free(part);
+    g_free(m3u);
+
+    g_ptr_array_unref(games);
+    g_free(game_id);
+    rh_import_plan_free(plan);
+    store_close(store);
+    rh_platform_rules_free(rules);
+    remove_tree(src);
+    remove_tree(lib);
+    g_free(src);
+    g_free(lib);
+}
+
 int main(int argc, char **argv)
 {
     rh_test_init(&argc, &argv);
@@ -683,5 +752,6 @@ int main(int argc, char **argv)
     g_test_add_func("/import/execute-conflict", test_execute_conflict);
     g_test_add_func("/import/execute-rollback", test_execute_rollback);
     g_test_add_func("/import/execute-cancel", test_execute_cancel);
+    g_test_add_func("/import/execute-multidisc", test_execute_multidisc);
     return g_test_run();
 }
