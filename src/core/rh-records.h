@@ -20,6 +20,7 @@ typedef struct {
     gchar *name;            /* 前端显示名 */
     gchar *game_main_name;  /* 命名基准 */
     gchar *dir_path;        /* "<platform>/<游戏目录>"，内部用 '/' */
+    GBytes *dir_path_raw;   /* dir_path 的原始字节；还原非 UTF-8 路径用，可 NULL */
     gchar *developer;
     gchar *publisher;
     gint   year;            /* 0 表示 NULL */
@@ -40,6 +41,7 @@ typedef struct {
 
 typedef struct {
     gchar   *filename;      /* 相对游戏目录的文件名 */
+    GBytes  *filename_raw;  /* 同一路径的原始字节，可 NULL */
     gint     disc_no;       /* 0 表示 NULL */
     gboolean has_size;
     gint64   size;
@@ -52,6 +54,7 @@ typedef struct {
 typedef struct {
     gchar   *kind;          /* 见 rh_media_kind_names */
     gchar   *filename;
+    GBytes  *filename_raw;  /* 同一路径的原始字节，可 NULL */
     gboolean has_size;
     gint64   size;
     gint     sort;

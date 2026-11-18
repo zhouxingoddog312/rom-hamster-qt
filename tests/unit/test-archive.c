@@ -10,6 +10,8 @@
 #include "rh-test-main.h"
 
 #define FIXTURE_RAR RH_TEST_FIXTURE_DIR "/archives/sample.rar"
+#define FIXTURE_GBK RH_TEST_FIXTURE_DIR "/archives/gbk-name.zip"
+#define FIXTURE_INVALID RH_TEST_FIXTURE_DIR "/archives/invalid-name.zip"
 
 typedef struct {
     const char *name;
@@ -450,6 +452,98 @@ static void test_rar_read(void)
     g_free(dir);
 }
 
+/* 老 Windows 工具打的 zip：条目名是 GBK 字节且无 UTF-8 标记。 */
+static void test_gbk_entry_name(void)
+{
+    if (!g_file_test(FIXTURE_GBK, G_FILE_TEST_EXISTS)) {
+        g_test_skip("缺少 GBK 样本 " FIXTURE_GBK);
+        return;
+    }
+
+    static const gchar expected_raw[] = "\xD3\xCE\xCF\xB7.nes";
+
+    RhArchiveList *list = NULL;
+    g_test_expect_message("romham/archive", G_LOG_LEVEL_WARNING, "*GB18030*");
+    g_assert_cmpint(rh_archive_list(FIXTURE_GBK, &list), ==, RH_OK);
+    g_test_assert_expected_messages();
+
+    g_assert_cmpuint(list->entries->len, ==, 1);
+    g_assert_cmpuint(list->guessed_names, ==, 1);
+    g_assert_cmpuint(list->escaped_names, ==, 0);
+
+    RhArchiveEntry *entry = g_ptr_array_index(list->entries, 0);
+    g_assert_cmpstr(entry->pathname, ==, "游戏.nes");
+    g_assert_cmpint(entry->name_encoding, ==, RH_FNAME_GB18030);
+
+    gsize raw_len = 0;
+    const gchar *raw = g_bytes_get_data(entry->raw_pathname, &raw_len);
+    g_assert_cmpuint(raw_len, ==, strlen(expected_raw));
+    g_assert_cmpint(memcmp(raw, expected_raw, raw_len), ==, 0);
+    rh_archive_list_free(list);
+
+    /* 解压按显示名落盘：双端都得到合法 UTF-8 文件名 */
+    gchar *dir = make_dir();
+    gchar *target = g_build_filename(dir, "out", NULL);
+    RhArchiveExtractOptions options = { target, NULL };
+    g_assert_cmpint(rh_archive_extract(FIXTURE_GBK, &options, NULL), ==, RH_OK);
+
+    gchar *file = g_build_filename(target, "游戏.nes", NULL);
+    gchar *contents = read_text(file);
+    g_assert_cmpstr(contents, ==, "GBKDATA");
+    g_free(contents);
+    g_free(file);
+    g_free(target);
+    remove_tree(dir);
+    g_free(dir);
+}
+
+/* 既不是 UTF-8 也解不出 GB18030：必须转义保留，不能丢条目。 */
+static void test_invalid_entry_name(void)
+{
+    if (!g_file_test(FIXTURE_INVALID, G_FILE_TEST_EXISTS)) {
+        g_test_skip("缺少非法字节样本 " FIXTURE_INVALID);
+        return;
+    }
+
+    static const gchar expected_raw[] = "\xFF\xFE.nes";
+
+    RhArchiveList *list = NULL;
+    g_test_expect_message("romham/archive", G_LOG_LEVEL_WARNING, "*转义*");
+    g_assert_cmpint(rh_archive_list(FIXTURE_INVALID, &list), ==, RH_OK);
+    g_test_assert_expected_messages();
+
+    g_assert_cmpuint(list->entries->len, ==, 1);
+    g_assert_cmpuint(list->guessed_names, ==, 0);
+    g_assert_cmpuint(list->escaped_names, ==, 1);
+
+    RhArchiveEntry *entry = g_ptr_array_index(list->entries, 0);
+    g_assert_cmpstr(entry->pathname, ==, "%FF%FE.nes");
+    g_assert_cmpint(entry->name_encoding, ==, RH_FNAME_ESCAPED);
+    g_assert_null(strchr(entry->pathname, '/'));
+    g_assert_null(strchr(entry->pathname, '\\'));
+
+    gsize raw_len = 0;
+    const gchar *raw = g_bytes_get_data(entry->raw_pathname, &raw_len);
+    g_assert_cmpuint(raw_len, ==, strlen(expected_raw));
+    g_assert_cmpint(memcmp(raw, expected_raw, raw_len), ==, 0);
+    rh_archive_list_free(list);
+
+    /* 兜底名不含分隔符，解压不会切出子目录 */
+    gchar *dir = make_dir();
+    gchar *target = g_build_filename(dir, "out", NULL);
+    RhArchiveExtractOptions options = { target, NULL };
+    g_assert_cmpint(rh_archive_extract(FIXTURE_INVALID, &options, NULL), ==, RH_OK);
+
+    gchar *file = g_build_filename(target, "%FF%FE.nes", NULL);
+    gchar *contents = read_text(file);
+    g_assert_cmpstr(contents, ==, "BADDATA");
+    g_free(contents);
+    g_free(file);
+    g_free(target);
+    remove_tree(dir);
+    g_free(dir);
+}
+
 /* 中文路径既是 Windows 宽字符 API 的回归，也是 UTF-8 入口的回归。 */
 static void test_chinese_paths(void)
 {
@@ -496,6 +590,8 @@ int main(int argc, char **argv)
     g_test_add_func("/archive/traversal-rejected", test_traversal_rejected);
     g_test_add_func("/archive/7z-roundtrip", test_7z_roundtrip);
     g_test_add_func("/archive/rar-read", test_rar_read);
+    g_test_add_func("/archive/gbk-entry-name", test_gbk_entry_name);
+    g_test_add_func("/archive/invalid-entry-name", test_invalid_entry_name);
     g_test_add_func("/archive/chinese-paths", test_chinese_paths);
 
     return g_test_run();

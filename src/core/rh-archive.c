@@ -11,6 +11,7 @@
 
 #define RH_ARCHIVE_BLOCK_SIZE (64 * 1024)
 #define RH_ARCHIVE_TMP_SUFFIX ".rhpart-XXXXXX"
+#define RH_ARCHIVE_DOMAIN "romham/archive"
 
 /* ------------------------------------------------------------------ */
 /* 打开与错误映射                                                      */
@@ -96,33 +97,27 @@ typedef enum {
     RH_ENTRY_PATH_UNSAFE
 } RhEntryPathState;
 
-/* libarchive 的 pathname 在 zip 未标 UTF-8 时可能是 CP437；优先取它已转好的
- * UTF-8 版本，退回原字节再尝试一次 CP437→UTF-8 转换。 */
-static gchar *entry_name_to_utf8(const char *raw)
-{
-    if (raw == NULL)
-        return NULL;
-    if (g_utf8_validate(raw, -1, NULL))
-        return g_strdup(raw);
-    return g_convert(raw, -1, "UTF-8", "CP437", NULL, NULL, NULL);
-}
-
-/*
- * 返回 OK 时 *out 为新分配的规范路径（'/' 分隔、无 "."/".."、无空段）；
- * SKIP 表示该条目没有可用路径（空名、".", 无效 UTF-8），应忽略；
- * UNSAFE 表示绝对路径或含 ".."，调用方必须拒绝整个压缩包。
- */
-static RhEntryPathState normalize_entry_path(const char *raw, gchar **out)
+/* libarchive 对未标 UTF-8 的 zip 返回条目名原始字节（可能是 GBK）。交给
+ * rh-fname 判定：合法 UTF-8 原样使用，否则按 GB18030 推测，再不行逐字节转义。
+ * 返回的 fname 保留原始字节，供入库与后续还原。 */
+static RhEntryPathState normalize_entry_path(const char *raw, gchar **out,
+                                             RhFName **out_fname)
 {
     *out = NULL;
+    if (out_fname != NULL)
+        *out_fname = NULL;
     if (raw == NULL || raw[0] == '\0')
         return RH_ENTRY_PATH_SKIP;
 
-    gchar *utf8 = entry_name_to_utf8(raw);
-    if (utf8 == NULL)
+    RhFName *fname = rh_fname_from_bytes(raw, -1);
+    if (fname == NULL)
         return RH_ENTRY_PATH_SKIP;
 
-    /* 存档里可能混入 Windows 反斜杠；内部统一 '/'，也避免绕过 ".." 检查。 */
+    gchar *utf8 = g_strdup(fname->display);
+
+    /* 解码后再替换分隔符：GBK 的尾字节可能等于 '\\'，先切分会切坏字符。
+     * UTF-8 多字节序列里不会出现 0x5C，转义表示里也没有裸 '\\'，因此这里只
+     * 会命中真正的 Windows 路径分隔符。 */
     for (gchar *p = utf8; *p != '\0'; p++) {
         if (*p == '\\')
             *p = '/';
@@ -130,6 +125,7 @@ static RhEntryPathState normalize_entry_path(const char *raw, gchar **out)
 
     if (utf8[0] == '/' || (g_ascii_isalpha(utf8[0]) && utf8[1] == ':')) {
         g_free(utf8);
+        rh_fname_free(fname);
         return RH_ENTRY_PATH_UNSAFE;
     }
 
@@ -154,20 +150,29 @@ static RhEntryPathState normalize_entry_path(const char *raw, gchar **out)
         state = RH_ENTRY_PATH_OK;
     }
 
-    if (state == RH_ENTRY_PATH_OK)
+    if (state == RH_ENTRY_PATH_OK) {
         *out = g_string_free(joined, FALSE);
-    else
+        if (out_fname != NULL)
+            *out_fname = fname;
+        else
+            rh_fname_free(fname);
+    } else {
         g_string_free(joined, TRUE);
+        rh_fname_free(fname);
+    }
 
     g_strfreev(parts);
     return state;
 }
 
+/* 优先取 pathname()：它给出条目里的原始字节（未标 UTF-8 的 zip 就是 GBK）。
+ * pathname_utf8() 会把无标记条目按 CP437 转成 UTF-8（D3 -> "Ó"），反而丢失
+ * 真实字节，只在 pathname() 不可用时兜底。 */
 static gchar *entry_raw_pathname(struct archive_entry *entry)
 {
-    const char *p = archive_entry_pathname_utf8(entry);
+    const char *p = archive_entry_pathname(entry);
     if (p == NULL)
-        p = archive_entry_pathname(entry);
+        p = archive_entry_pathname_utf8(entry);
     return g_strdup(p);
 }
 
@@ -192,6 +197,8 @@ static void archive_entry_item_free(RhArchiveEntry *entry)
     if (entry == NULL)
         return;
     g_free(entry->pathname);
+    if (entry->raw_pathname != NULL)
+        g_bytes_unref(entry->raw_pathname);
     g_free(entry);
 }
 
@@ -226,7 +233,8 @@ RhErr rh_archive_list(const char *archive_path, RhArchiveList **out_list)
 
         gchar *raw = entry_raw_pathname(entry);
         gchar *pathname = NULL;
-        RhEntryPathState state = normalize_entry_path(raw, &pathname);
+        RhFName *fname = NULL;
+        RhEntryPathState state = normalize_entry_path(raw, &pathname, &fname);
 
         if (state == RH_ENTRY_PATH_UNSAFE) {
             g_free(raw);
@@ -242,6 +250,13 @@ RhErr rh_archive_list(const char *archive_path, RhArchiveList **out_list)
 
         RhArchiveEntry *item = g_new0(RhArchiveEntry, 1);
         item->pathname = pathname;
+        item->raw_pathname = g_bytes_ref(fname->raw);
+        item->name_encoding = fname->encoding;
+        if (fname->encoding == RH_FNAME_GB18030)
+            list->guessed_names++;
+        else if (fname->encoding == RH_FNAME_ESCAPED)
+            list->escaped_names++;
+        rh_fname_free(fname);
         item->is_dir = entry_is_dir(entry, raw);
         item->is_encrypted = archive_entry_is_encrypted(entry) == 1;
         if (!item->is_dir && archive_entry_size_is_set(entry)
@@ -265,6 +280,13 @@ RhErr rh_archive_list(const char *archive_path, RhArchiveList **out_list)
     /* 部分格式（如 7z）只有读完全部头之后才能回答整包是否加密 */
     if (archive_read_has_encrypted_entries(a) == 1)
         list->encrypted = TRUE;
+
+    /* 回退发生时记一条 warning，供日志排查；结果里同时保留逐条状态。 */
+    if (list->guessed_names > 0 || list->escaped_names > 0) {
+        g_log(RH_ARCHIVE_DOMAIN, G_LOG_LEVEL_WARNING,
+              "条目名不是 UTF-8：%u 个按 GB18030 推测，%u 个无法解码已转义",
+              list->guessed_names, list->escaped_names);
+    }
 
     archive_read_free(a);
     *out_list = list;
@@ -381,7 +403,7 @@ RhErr rh_archive_extract(const char *archive_path,
 
     gchar *wanted = NULL;
     if (options->entry != NULL) {
-        RhEntryPathState st = normalize_entry_path(options->entry, &wanted);
+        RhEntryPathState st = normalize_entry_path(options->entry, &wanted, NULL);
         if (st != RH_ENTRY_PATH_OK)
             return RH_ERR_INVALID;
     }
@@ -408,7 +430,7 @@ RhErr rh_archive_extract(const char *archive_path,
         gchar *raw = entry_raw_pathname(entry);
         gboolean raw_is_dir = entry_is_dir(entry, raw);
         gchar *pathname = NULL;
-        RhEntryPathState state = normalize_entry_path(raw, &pathname);
+        RhEntryPathState state = normalize_entry_path(raw, &pathname, NULL);
         g_free(raw);
 
         if (state == RH_ENTRY_PATH_UNSAFE) {

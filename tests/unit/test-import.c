@@ -142,10 +142,168 @@ static void test_plan_errors(void)
     rh_platform_rules_free(rules);
 }
 
+/* GBK 字节的磁盘文件名：显示要正确，但定位必须仍走原始字节。 */
+#ifndef _WIN32
+static void test_gbk_filename(void)
+{
+    static const gchar gbk_name[] = "\xD3\xCE\xCF\xB7.gb";
+
+    RhPlatformRules *rules = load();
+    gchar *root = g_dir_make_tmp("romham-import-XXXXXX", NULL);
+    gchar *gb = g_build_filename(root, "gb", NULL);
+    g_mkdir_with_parents(gb, 0755);
+
+    gchar *raw_path = g_build_filename(gb, gbk_name, NULL);
+    g_assert_true(g_file_set_contents(raw_path, "x", -1, NULL));
+
+    RhErr err = RH_ERR_INVALID;
+    RhImportPlan *plan = rh_import_plan_scan(rules, root, &err);
+    g_assert_cmpint(err, ==, RH_OK);
+    g_assert_cmpuint(plan->guessed_names, ==, 1);
+    g_assert_cmpuint(plan->escaped_names, ==, 0);
+
+    RhImportPlanEntry *entry = find(plan, "gb");
+    g_assert_nonnull(entry);
+    g_assert_cmpuint(entry->roms->len, ==, 1);
+    g_assert_cmpstr(g_ptr_array_index(entry->roms, 0), ==, "游戏.gb");
+
+    GBytes *raw = g_ptr_array_index(entry->roms_raw, 0);
+    gsize len = 0;
+    const gchar *data = g_bytes_get_data(raw, &len);
+    g_assert_cmpuint(len, ==, sizeof gbk_name - 1);
+    g_assert_cmpint(memcmp(data, gbk_name, len), ==, 0);
+
+    /* 用原始字节拼出来的路径必须真的能定位到文件 */
+    gchar *raw_copy = g_strndup(data, len);
+    gchar *located = g_build_filename(gb, raw_copy, NULL);
+    g_assert_true(g_file_test(located, G_FILE_TEST_IS_REGULAR));
+    g_free(located);
+    g_free(raw_copy);
+
+    rh_import_plan_free(plan);
+    rh_platform_rules_free(rules);
+    g_remove(raw_path);
+    g_free(raw_path);
+    g_rmdir(gb);
+    g_rmdir(root);
+    g_free(gb);
+    g_free(root);
+}
+
+/* 完全非法字节：条目不能消失，显示为转义名，原始字节仍可定位。 */
+static void test_invalid_filename(void)
+{
+    static const gchar bad_name[] = "\xFF\xFE.gb";
+
+    RhPlatformRules *rules = load();
+    gchar *root = g_dir_make_tmp("romham-import-XXXXXX", NULL);
+    gchar *gb = g_build_filename(root, "gb", NULL);
+    g_mkdir_with_parents(gb, 0755);
+
+    gchar *raw_path = g_build_filename(gb, bad_name, NULL);
+    g_assert_true(g_file_set_contents(raw_path, "x", -1, NULL));
+
+    RhErr err = RH_ERR_INVALID;
+    RhImportPlan *plan = rh_import_plan_scan(rules, root, &err);
+    g_assert_cmpint(err, ==, RH_OK);
+    g_assert_cmpuint(plan->escaped_names, ==, 1);
+
+    RhImportPlanEntry *entry = find(plan, "gb");
+    g_assert_nonnull(entry);
+    g_assert_cmpuint(entry->roms->len, ==, 1);
+    g_assert_cmpstr(g_ptr_array_index(entry->roms, 0), ==, "%FF%FE.gb");
+
+    GBytes *raw = g_ptr_array_index(entry->roms_raw, 0);
+    gsize len = 0;
+    const gchar *data = g_bytes_get_data(raw, &len);
+    g_assert_cmpuint(len, ==, sizeof bad_name - 1);
+    g_assert_cmpint(memcmp(data, bad_name, len), ==, 0);
+
+    gchar *raw_copy = g_strndup(data, len);
+    gchar *located = g_build_filename(gb, raw_copy, NULL);
+    g_assert_true(g_file_test(located, G_FILE_TEST_IS_REGULAR));
+    g_free(located);
+    g_free(raw_copy);
+
+    rh_import_plan_free(plan);
+    rh_platform_rules_free(rules);
+    g_remove(raw_path);
+    g_free(raw_path);
+    g_rmdir(gb);
+    g_rmdir(root);
+    g_free(gb);
+    g_free(root);
+}
+#endif /* !_WIN32 */
+
+/* Windows 宽字符/UTF-8 往返：中文与 emoji 都不能在入口处丢信息。 */
+static void test_wide_char_names(void)
+{
+    RhPlatformRules *rules = load();
+    gchar *root = g_dir_make_tmp("romham-import-XXXXXX", NULL);
+
+    gchar *gb = g_build_filename(root, "gb", NULL);
+    touch(gb, "中文 游戏 🎮.gb");
+    touch(gb, "covers/封面 🎨.png");
+    g_free(gb);
+
+    RhErr err = RH_ERR_INVALID;
+    RhImportPlan *plan = rh_import_plan_scan(rules, root, &err);
+    g_assert_cmpint(err, ==, RH_OK);
+    g_assert_cmpuint(plan->guessed_names, ==, 0);
+    g_assert_cmpuint(plan->escaped_names, ==, 0);
+
+    RhImportPlanEntry *entry = find(plan, "gb");
+    g_assert_nonnull(entry);
+    g_assert_cmpstr(g_ptr_array_index(entry->roms, 0), ==, "中文 游戏 🎮.gb");
+
+    GBytes *raw = g_ptr_array_index(entry->roms_raw, 0);
+    gsize len = 0;
+    const gchar *data = g_bytes_get_data(raw, &len);
+    g_assert_cmpuint(len, ==, strlen("中文 游戏 🎮.gb"));
+    g_assert_cmpint(memcmp(data, "中文 游戏 🎮.gb", len), ==, 0);
+
+    g_assert_cmpuint(entry->media->len, ==, 1);
+    RhImportMediaFile *media = g_ptr_array_index(entry->media, 0);
+    g_assert_cmpstr(media->filename, ==, "covers/封面 🎨.png");
+
+    /* 用原始字节仍能定位（POSIX）或 UTF-8 名仍能定位（Windows） */
+    gchar *raw_copy = g_strndup(data, len);
+    gchar *rom_path = g_build_filename(root, "gb", raw_copy, NULL);
+    g_assert_true(g_file_test(rom_path, G_FILE_TEST_IS_REGULAR));
+    g_free(rom_path);
+    g_free(raw_copy);
+
+    rh_import_plan_free(plan);
+    rh_platform_rules_free(rules);
+
+    gchar *roms[] = {
+        g_build_filename(root, "gb", "中文 游戏 🎮.gb", NULL),
+        g_build_filename(root, "gb", "covers", "封面 🎨.png", NULL),
+    };
+    for (gsize i = 0; i < G_N_ELEMENTS(roms); i++) {
+        g_remove(roms[i]);
+        g_free(roms[i]);
+    }
+    gchar *covers = g_build_filename(root, "gb", "covers", NULL);
+    g_rmdir(covers);
+    g_free(covers);
+    gchar *gb_dir = g_build_filename(root, "gb", NULL);
+    g_rmdir(gb_dir);
+    g_free(gb_dir);
+    g_rmdir(root);
+    g_free(root);
+}
+
 int main(int argc, char **argv)
 {
     rh_test_init(&argc, &argv);
     g_test_add_func("/import/plan-scan", test_plan_scan);
     g_test_add_func("/import/plan-errors", test_plan_errors);
+#ifndef _WIN32
+    g_test_add_func("/import/gbk-filename", test_gbk_filename);
+    g_test_add_func("/import/invalid-filename", test_invalid_filename);
+#endif
+    g_test_add_func("/import/wide-char-names", test_wide_char_names);
     return g_test_run();
 }

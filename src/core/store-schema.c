@@ -120,6 +120,21 @@ const char *const rh_schema_v1_sql[] = {
 const int rh_schema_v1_sql_count =
     (int)(sizeof(rh_schema_v1_sql) / sizeof(rh_schema_v1_sql[0]));
 
+/*
+ * v2：所有由用户文件名推导出的路径都补一列原始字节。
+ * 显示列保存 UTF-8（可能是 GB18030 推测或转义结果），BLOB 列保存磁盘/归档
+ * 里的真实字节，二者同时存在才能「显示正确」且「可还原」。旧库的行留 NULL，
+ * 首次重新扫描时补齐。
+ */
+const char *const rh_schema_v2_sql[] = {
+    "ALTER TABLE games ADD COLUMN dir_path_raw BLOB",
+    "ALTER TABLE roms  ADD COLUMN filename_raw BLOB",
+    "ALTER TABLE media ADD COLUMN filename_raw BLOB"
+};
+
+const int rh_schema_v2_sql_count =
+    (int)(sizeof(rh_schema_v2_sql) / sizeof(rh_schema_v2_sql[0]));
+
 const char *const rh_schema_fts_sql[] = {
     "CREATE VIRTUAL TABLE games_fts USING fts5("
     "  name, game_main_name, description,"

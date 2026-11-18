@@ -1,6 +1,7 @@
 #include <glib.h>
 #include <glib/gstdio.h>
 #include <sqlite3.h>
+#include <string.h>
 
 #include "rh-test-main.h"
 #include "store-schema.h"
@@ -416,6 +417,129 @@ static void test_jobs(void)
     g_free(dir);
 }
 
+/* 原始字节列：显示名可以是 GB18030 推测值，但 BLOB 必须原样往返。 */
+static void test_raw_bytes_roundtrip(void)
+{
+    gchar *dir = NULL, *path = NULL;
+    RhStore *store = open_temp_store(&dir, &path);
+
+    static const gchar gbk_dir[] = "\xD3\xCE\xCF\xB7";
+    static const gchar gbk_rom[] = "\xD3\xCE\xCF\xB7.nes";
+
+    RhGame *game = make_game("raw00001", "nes", "游戏");
+    game->dir_path_raw = g_bytes_new(gbk_dir, sizeof gbk_dir - 1);
+
+    GPtrArray *roms = g_ptr_array_new_with_free_func(rh_rom_file_free_func);
+    RhRomFile *rom = rh_rom_file_new();
+    rom->filename = g_strdup("游戏.nes");
+    rom->filename_raw = g_bytes_new(gbk_rom, sizeof gbk_rom - 1);
+    g_ptr_array_add(roms, rom);
+
+    GPtrArray *media = g_ptr_array_new_with_free_func(rh_media_file_free_func);
+    RhMediaFile *cover = rh_media_file_new();
+    cover->kind = g_strdup("covers");
+    cover->filename = g_strdup("游戏.png");
+    cover->filename_raw = g_bytes_new(gbk_rom, sizeof gbk_rom - 1);
+    g_ptr_array_add(media, cover);
+
+    g_assert_cmpint(store_game_insert(store, game, roms, media, NULL), ==, RH_OK);
+
+    RhErr err = RH_ERR_INVALID;
+    RhGame *loaded = store_game_get(store, "raw00001", &err);
+    g_assert_cmpint(err, ==, RH_OK);
+    gsize len = 0;
+    const gchar *data = g_bytes_get_data(loaded->dir_path_raw, &len);
+    g_assert_cmpuint(len, ==, sizeof gbk_dir - 1);
+    g_assert_cmpint(memcmp(data, gbk_dir, len), ==, 0);
+
+    GPtrArray *loaded_roms = store_roms_for_game(store, "raw00001", &err);
+    RhRomFile *r0 = g_ptr_array_index(loaded_roms, 0);
+    data = g_bytes_get_data(r0->filename_raw, &len);
+    g_assert_cmpuint(len, ==, sizeof gbk_rom - 1);
+    g_assert_cmpint(memcmp(data, gbk_rom, len), ==, 0);
+
+    GPtrArray *loaded_media = store_media_for_game(store, "raw00001", "covers", &err);
+    RhMediaFile *m0 = g_ptr_array_index(loaded_media, 0);
+    data = g_bytes_get_data(m0->filename_raw, &len);
+    g_assert_cmpuint(len, ==, sizeof gbk_rom - 1);
+    g_assert_cmpint(memcmp(data, gbk_rom, len), ==, 0);
+
+    /* 更新也要写回 BLOB 列 */
+    static const gchar new_raw[] = "new-raw";
+    g_bytes_unref(loaded->dir_path_raw);
+    loaded->dir_path_raw = g_bytes_new(new_raw, sizeof new_raw - 1);
+    g_assert_cmpint(store_game_update(store, loaded), ==, RH_OK);
+
+    RhGame *reloaded = store_game_get(store, "raw00001", &err);
+    data = g_bytes_get_data(reloaded->dir_path_raw, &len);
+    g_assert_cmpuint(len, ==, sizeof new_raw - 1);
+    g_assert_cmpint(memcmp(data, new_raw, len), ==, 0);
+
+    rh_game_free(reloaded);
+    rh_game_free(loaded);
+    rh_game_free(game);
+    g_ptr_array_free(loaded_roms, TRUE);
+    g_ptr_array_free(loaded_media, TRUE);
+    g_ptr_array_free(roms, TRUE);
+    g_ptr_array_free(media, TRUE);
+    close_temp_store(store, dir, path);
+}
+
+/* v1 库（没有 raw 列）打开时必须自动迁移到 v2，旧行 raw 为 NULL。 */
+static void test_migrate_v1_to_v2(void)
+{
+    gchar *dir = g_dir_make_tmp("romham-store-XXXXXX", NULL);
+    g_assert_nonnull(dir);
+    gchar *path = g_build_filename(dir, "romhamster.db", NULL);
+
+    sqlite3 *db = NULL;
+    g_assert_cmpint(sqlite3_open(path, &db), ==, SQLITE_OK);
+    for (int i = 0; i < rh_schema_v1_sql_count; i++)
+        g_assert_cmpint(sqlite3_exec(db, rh_schema_v1_sql[i], NULL, NULL, NULL),
+                        ==, SQLITE_OK);
+    g_assert_cmpint(sqlite3_exec(db,
+        "INSERT INTO games (id, platform, name, dir_path, created_at, updated_at)"
+        " VALUES ('old00001','gb','Old','gb/Old','2020-01-01T00:00:00Z',"
+        " '2020-01-01T00:00:00Z');",
+        NULL, NULL, NULL), ==, SQLITE_OK);
+    g_assert_cmpint(sqlite3_exec(db, "PRAGMA user_version=1;", NULL, NULL, NULL),
+                    ==, SQLITE_OK);
+    sqlite3_close(db);
+
+    RhErr err = RH_ERR_INVALID;
+    RhStore *store = store_open(path, &err);
+    g_assert_cmpint(err, ==, RH_OK);
+    g_assert_nonnull(store);
+    g_assert_cmpint(store_schema_version(store), ==, 2);
+    g_assert_false(store_is_read_only(store));
+
+    RhGame *old = store_game_get(store, "old00001", &err);
+    g_assert_cmpint(err, ==, RH_OK);
+    g_assert_nonnull(old);
+    g_assert_null(old->dir_path_raw);
+
+    /* 迁移后新写入可以带 raw 列 */
+    RhGame *fresh = make_game("new00001", "gb", "New");
+    static const gchar raw[] = "gb/New";
+    fresh->dir_path_raw = g_bytes_new(raw, sizeof raw - 1);
+    g_assert_cmpint(store_game_insert(store, fresh, NULL, NULL, NULL), ==, RH_OK);
+
+    RhGame *loaded = store_game_get(store, "new00001", &err);
+    gsize len = 0;
+    const gchar *data = g_bytes_get_data(loaded->dir_path_raw, &len);
+    g_assert_cmpuint(len, ==, sizeof raw - 1);
+    g_assert_cmpint(memcmp(data, raw, len), ==, 0);
+
+    rh_game_free(loaded);
+    rh_game_free(fresh);
+    rh_game_free(old);
+    store_close(store);
+    remove_db_files(path);
+    g_rmdir(dir);
+    g_free(path);
+    g_free(dir);
+}
+
 int main(int argc, char **argv)
 {
     rh_test_init(&argc, &argv);
@@ -429,5 +553,7 @@ int main(int argc, char **argv)
     g_test_add_func("/store/read-only-rejects-writes", test_read_only_rejects_writes);
     g_test_add_func("/store/dir-path-unique", test_dir_path_unique);
     g_test_add_func("/store/jobs", test_jobs);
+    g_test_add_func("/store/raw-bytes-roundtrip", test_raw_bytes_roundtrip);
+    g_test_add_func("/store/migrate-v1-to-v2", test_migrate_v1_to_v2);
     return g_test_run();
 }

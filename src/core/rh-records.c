@@ -35,6 +35,8 @@ void rh_game_free(RhGame *game)
     g_free(game->name);
     g_free(game->game_main_name);
     g_free(game->dir_path);
+    if (game->dir_path_raw != NULL)
+        g_bytes_unref(game->dir_path_raw);
     g_free(game->developer);
     g_free(game->publisher);
     g_free(game->genre);
@@ -65,6 +67,8 @@ void rh_rom_file_free(RhRomFile *rom)
         return;
 
     g_free(rom->filename);
+    if (rom->filename_raw != NULL)
+        g_bytes_unref(rom->filename_raw);
     g_free(rom->crc32);
     g_free(rom->md5);
     g_free(rom->sha1);
@@ -88,6 +92,8 @@ void rh_media_file_free(RhMediaFile *media)
 
     g_free(media->kind);
     g_free(media->filename);
+    if (media->filename_raw != NULL)
+        g_bytes_unref(media->filename_raw);
     g_free(media);
 }
 

@@ -1,7 +1,10 @@
 # rom-hamster（C/C++ + Qt 6）架构与依赖说明
 
-> 版本：v0.5（2026-11-16）
+> 版本：v0.6（2026-11-18）
 > 本版修订：
+> 1. 新增 §15.1：文件名编码兼容是 M2 必做项——压缩包条目名与磁盘文件名统一按 UTF-8 → GB18030 → `%NN` 转义判定，显示与原始字节并存；schema 升到 v2（`dir_path_raw` / `filename_raw` BLOB）并实现 v1→v2 迁移。
+>
+> v0.5（2026-11-16）修订：
 > 1. 把 §16 的 8 个待定项全部定案：不做历史数据转换工具；GUI 首版只做主窗口/详情/导入/首启/拖拽；Windows 只出 zip + Inno Setup；不签名、公布校验和；视频默认外部播放器、Qt Multimedia 可选构建；Linux CLI 走 deb（免安装给 tarball）、AppImage 只用于 GUI；版本检查只提示不安装；图标源文件已具备（`resources/icons/rom-hamster.svg`，512×512）。
 > 2. 新增 §9.4 升级语义：deb / Windows 安装包 / AppImage 均为原地覆盖升级；启动时执行 schema 迁移，并拒绝"旧程序打开更高版本库"。
 > 3. §8、§9、§11、§14 按上述决策校正：Multimedia 统一为可选构建；AppImage 不再描述为 CLI+GUI 双入口包；M4/M5 验收范围与功能清单对齐；新增版本检查（仅 GUI、Qt Network、失败静默）。
@@ -164,6 +167,7 @@ rom-hamster/
 │  │  ├─ rh-str.h/.c           # 扩展名/复合扩展名、核心名归一、相似度、清洗目录名
 │  │  ├─ rh-fs.h/.c            # 递归遍历、原子写、安全复制、路径校验
 │  │  ├─ rh-path.h/.c          # 双端路径/配置目录/长路径适配
+│  │  ├─ rh-fname.h/.c         # 文件名原始字节：UTF-8/GB18030/转义三态、可逆
 │  │  ├─ rh-hash.h/.c          # crc32/md5/sha1 单次读盘三算
 │  │  ├─ rh-config.h/.c        # 五层配置加载与持久化
 │  │  ├─ platform.h/.c         # 规则解析、平台判定、媒体识别、导出平台名映射
@@ -281,6 +285,7 @@ CREATE TABLE games (
   name           TEXT NOT NULL,
   game_main_name TEXT,
   dir_path       TEXT NOT NULL UNIQUE,
+  dir_path_raw   BLOB,                    -- v2：目录路径原始字节（可 NULL）
   developer      TEXT,
   publisher      TEXT,
   year           INTEGER,
@@ -304,6 +309,7 @@ CREATE TABLE games (
 CREATE TABLE roms (
   game_id  TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
   filename TEXT NOT NULL,
+  filename_raw BLOB,                  -- v2：文件名原始字节（可 NULL）
   disc_no  INTEGER,
   size     INTEGER,
   crc32    TEXT,
@@ -318,6 +324,7 @@ CREATE TABLE media (
   kind     TEXT NOT NULL CHECK (kind IN
            ('covers','screenshots','videos','marquees','miximages','intro','patcher')),
   filename TEXT NOT NULL,
+  filename_raw BLOB,               -- v2：文件名原始字节（可 NULL）
   size     INTEGER,                -- 字节；导入时 stat 一次，stats 用 SUM(size)
   sort     INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (game_id, kind, filename)
@@ -406,6 +413,11 @@ CREATE VIRTUAL TABLE games_fts USING fts5(
 
 `trigram` 分词器（SQLite ≥ 3.34）对中日韩与含数字的 ROM 文件名都能命中子串，优于 `unicode61` 对中文会整串丢失。
 
+> **v2（文件名编码可逆）**：`games.dir_path_raw`、`roms.filename_raw`、`media.filename_raw`
+> 三列由 `ALTER TABLE ... ADD COLUMN` 加入，允许 NULL。`*_raw` 存磁盘/归档里的真实字节，
+> 显示列存 UTF-8（可能是 GB18030 推测或转义结果）；两者同时存在才能"显示正确"且
+> "可还原"。旧库升级后旧行为 NULL，重新扫描时补齐。详见 §15.1。
+
 ### 3.4 schema 版本与升级
 
 `PRAGMA user_version` 记录 schema 版本，`store.c` 内维护 `migration[]` 表：`{version, sql}` 顺序执行，每次升级在单事务内完成。首个版本为 v1。以后加字段只允许"加表/加列/加索引"，不重命名已有列，避免用户数据升级损坏。（这是**结构**升级，与 §12 的既有收藏接入无关。）
@@ -417,6 +429,8 @@ CREATE VIRTUAL TABLE games_fts USING fts5(
 - 迁移失败：回滚并保留原库，不进入写入路径。
 
 升级动作本身不迁移用户数据（§9.4），只做 schema 版本检查。
+
+已落地的迁移：**v1 → v2**（为 `games`/`roms`/`media` 增加 `*_raw BLOB` 列）。新建库先建 v1 再在同一事务里执行 v2 的 `ALTER TABLE`；旧库打开时按同一组语句单事务迁移，失败回滚并保留原库。
 
 ### 3.5 已定决策（不再讨论）
 
@@ -527,6 +541,7 @@ typedef struct {
 | `rh-str` | 扩展名/复合扩展名、核心名归一、相似度、目录名清洗 |
 | `rh-fs` | 递归遍历、原子写、安全复制、路径校验（统一走 `rh-path`） |
 | `rh-path` | 配置/缓存目录、长路径、大小写与保留名适配 |
+| `rh-fname` | 文件名原始字节判定：UTF-8 / GB18030 推测 / 转义兜底；显示名与原始字节可逆转换 |
 | `rh-hash` | crc32/md5/sha1 按需单次读盘三算 |
 | `rh-config` | 五层配置加载、来源记录、持久化 |
 | `platform` | 规则解析、扩展名→平台判定、媒体类型识别、导出平台名映射 |
@@ -558,6 +573,7 @@ typedef struct {
 |---|---|---|
 | `platform` | 解析规则、扩展名→平台判定、媒体类型识别 | 不读文件内容、不碰数据库、不搬文件 |
 | `classify` | 回答"这个文件归谁"（返回类型 + 目标平台） | **不搬文件、不入库、不弹窗** |
+| `rh-fname` | 判定名字编码，给出显示名与原始字节 | 不改名、不碰磁盘、不猜平台 |
 | `archive` | 压缩包列表/解压/加密探测/打包 | 不知道"ROM 是什么"，不判定平台 |
 | `dat` | Logiqx 解析、建 `dat_entries`、按哈希查 | 不改游戏记录，只返回匹配结果 |
 | `import` | 唯一编排者：队列、归属、命名、m3u、落库 | 不做判定（调 `classify`/`platform`）、不做解压（调 `archive`） |
@@ -1291,6 +1307,13 @@ ROM_ROOT = /home/zhoux/roms
 
 结论：**M1 未结项**。核心模块部分已齐，缺打包验收两项。Windows 的 `dumpbin` 断言仍留到 M5，不计为已通过。
 
+**M2 进度（2026-11-18）**
+
+已完成 `archive`（列表/解压/加密探测，11 用例，含 GBK 条目名与非法字节兜底）与
+`rh-fname`（6 用例）；`import` 预扫描与 `store` 已接入原始字节，schema 升到 v2 并
+实现 v1→v2 迁移。四组构建（Linux/Windows × CLI/GUI）通过；`ctest` Linux 15/15
+（64 用例）、Windows 13/13（60 用例）。下一步：`hash` → `dat` → `import` 执行阶段。
+
 ### 14.1 M4 性能验收（量化）
 
 测试数据：脚本生成 **10000 条**游戏记录（每 10 条含 1 个多碟、每 20 条含 3 张截图）。
@@ -1318,6 +1341,7 @@ CI 能自动化的只有「首屏渲染」与「内存增长」两项（Linux xv
 | 配置目录 | XDG | `%APPDATA%`/`%ProgramData%` | `rh-path` |
 | 路径分隔/大小写 | `/`，大小写敏感 | `\`，大小写不敏感 | 内部存 UTF-8 + `/`；比较按平台 |
 | 参数与环境变量编码 | UTF-8 | `argv`/`getenv` 为 ANSI/GBK | 入口处经 `rh_path_utf8_from_native` 转 UTF-8；不得把原生窄字节直接交给 GLib/SQLite |
+| 文件名编码 | 文件名一般是 UTF-8 | NTFS-3G/Samba/老 zip 可能是 GBK 或任意字节 | `rh-fname`：合法 UTF-8 原样；否则 GB18030 推测；再失败按 `%NN` 转义。显示与入库用 UTF-8，原始字节存 BLOB，不自动改名。详见 §15.1 |
 | CLI 输出编码 | 恒为 UTF-8，不随 locale 转码 | 控制台代码页可能不是 UTF-8 | 输出字节与 locale 无关。`g_print`/`g_printerr` 在流是终端时按当前 locale 字符集转码（`glib/gprint.c` 的 `g_fputs`），进程未 `setlocale()` 就停在 `C`/ASCII，中文逐字变 `?`；故 CLI 直接写 UTF-8 字节。用例：`cli/version-utf8`（管道）与 `cli/version-utf8-tty`（`script -qc` 伪终端）。Windows 侧仍把控制台代码页设为 65001，与直接写字节自洽 |
 | 长路径 | 无 260 限制 | `MAX_PATH` 260 | `\\?\` 前缀 |
 | 保留名/结尾字符 | 无 | `CON`/`PRN`/…、结尾点/空格 | `sanitize_dirname` |
@@ -1330,6 +1354,46 @@ CI 能自动化的只有「首屏渲染」与「内存增长」两项（Linux xv
 | 原地升级 | `dpkg`/`apt` 覆盖 | 同 AppId 同目录覆盖 | §9.4 |
 | CLI 入口 | PATH；tarball 用 `$ORIGIN` rpath；AppImage `--cli` 仅应急 | PATH / `bin\` | §9.3 |
 | 日志/缓存 | `XDG_CACHE_HOME` | `%LOCALAPPDATA%` | `rh-path` |
+
+### 15.1 非 UTF-8 文件名（M2，必须兼容）
+
+两类来源：压缩包条目名（老 Windows 工具打的 zip，条目名是 GBK 字节且无 UTF-8 标记）
+与文件系统文件名（NTFS-3G/Samba/老 zip 解出的文件，POSIX 上是字节串）。两者都交给
+`rh-fname`，使用同一套判定：
+
+1. 原始字节是合法 UTF-8 → 原样使用，不标记推测；
+2. 否则整串按 **GB18030** 解码，只有全部字节成功才采用。GB18030 是 GBK 的严格超集，
+   能容纳更多历史字节；结果标记为「编码推测」；
+3. 仍失败 → 逐字节转义（兜底），标记为「转义」。
+
+**哪些情况不猜**：原始字节本身是合法 UTF-8（含纯 ASCII）；GB18030 无法整串解码；
+名字含 NUL（无法作为 C 字符串显示，直接转义为 `%00`）。绝不局部替换，也不把半个
+字符拼进显示名。
+
+**兜底表示（确定且无损）**：0x20–0x7E 中除 `%` 与 `\` 外原样；`%` → `%25`，
+`\` → `%5C`，其余字节 → `%NN`（大写十六进制）。结果只含可打印 ASCII，是合法
+UTF-8，且不含路径分隔符；`rh_fname_unescape` 可逐字节还原。选择 `%NN` 而不是
+`\xNN`：反斜杠在 Windows 上是路径分隔符，转义名一旦参与解压/建目录就会被误切出
+子目录。
+
+**数据库怎么存原始字节**：显示列（`games.dir_path`、`roms.filename`、`media.filename`）
+存 UTF-8；v2 新增 `dir_path_raw` / `filename_raw` 三列 BLOB 存原始字节。状态
+（UTF-8/推测/转义）由原始字节确定性重算，不另存标志列，避免两处不一致。扫描/解压时
+原始字节直接来自 `readdir()` / libarchive 的 `pathname()`，不经过宽字符或 ANSI 中转；
+不使用 `archive_entry_pathname_utf8()`，因为它会把无标记条目按 CP437 转成 `ÓÎÏ·`，
+真实字节就丢了。
+
+**定位**：POSIX 始终用原始字节调用文件系统，非 UTF-8 名字可以正常打开；Windows
+文件名本质是 UTF-16，UTF-8 与 GB18030 两种状态都用解码后的 UTF-8 名定位；转义状态
+没有对应的合法文件名，明确标记为不可定位，不返回一个会静默失败的路径。
+
+**为什么不自动改名**：改名会破坏用户脚本、前端清单、模拟器配置里已有的引用；
+GB18030 只是概率最高的猜测，猜错时改名等于把文件永久变成另一个名字。因此推测只
+影响显示与入库，磁盘字节保持原样。首版也不提供批量改名；以后若做，必须是用户逐条
+确认的显式操作。
+
+**解压策略**：我们自己的解压按显示名落盘（UTF-8），双端得到同一个合法名字；原始
+条目名仍保留在列表结果与库记录里。这条规则只约束"新建文件"，不触碰用户已有文件。
 
 ---
 

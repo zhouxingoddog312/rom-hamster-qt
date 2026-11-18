@@ -49,8 +49,43 @@ static RhErr set_user_version(sqlite3 *db, int version)
     return exec_sql(db, sql);
 }
 
-/* 空库：建 v1。FTS5 建立失败不阻断建库——检索降级为 LIKE（§3.5）。 */
-static RhErr create_schema_v1(sqlite3 *db)
+/* 逐级迁移：只允许加表/加列/加索引（§3.4）。 */
+static RhErr apply_migrations(sqlite3 *db, int from)
+{
+    int version = from;
+
+    if (version < 2) {
+        for (int i = 0; i < rh_schema_v2_sql_count; i++) {
+            if (exec_sql(db, rh_schema_v2_sql[i]) != RH_OK)
+                return RH_ERR_MIGRATE;
+        }
+        version = 2;
+    }
+
+    return set_user_version(db, version);
+}
+
+/* 旧库升级：单事务，失败回滚并保留原库。 */
+static RhErr migrate_schema(sqlite3 *db, int from)
+{
+    if (exec_sql(db, "BEGIN IMMEDIATE;") != RH_OK)
+        return RH_ERR_DB;
+
+    RhErr err = apply_migrations(db, from);
+    if (err == RH_OK) {
+        if (exec_sql(db, "COMMIT;") != RH_OK) {
+            exec_sql(db, "ROLLBACK;");
+            return RH_ERR_MIGRATE;
+        }
+        return RH_OK;
+    }
+
+    exec_sql(db, "ROLLBACK;");
+    return RH_ERR_MIGRATE;
+}
+
+/* 空库：建 v1 再按 migration[] 升到当前版本。FTS5 失败不阻断（§3.5）。 */
+static RhErr create_schema(sqlite3 *db)
 {
     if (exec_sql(db, "BEGIN IMMEDIATE;") != RH_OK)
         return RH_ERR_DB;
@@ -71,8 +106,13 @@ static RhErr create_schema_v1(sqlite3 *db)
         }
     }
 
-    if (set_user_version(db, RH_SCHEMA_VERSION) != RH_OK ||
-        exec_sql(db, "COMMIT;") != RH_OK) {
+    if (set_user_version(db, 1) != RH_OK ||
+        apply_migrations(db, 1) != RH_OK) {
+        exec_sql(db, "ROLLBACK;");
+        return RH_ERR_DB;
+    }
+
+    if (exec_sql(db, "COMMIT;") != RH_OK) {
         exec_sql(db, "ROLLBACK;");
         return RH_ERR_DB;
     }
@@ -119,7 +159,7 @@ RhStore *store_open(const char *path, RhErr *out_err)
     gboolean read_only = FALSE;
 
     if (version == 0) {
-        if ((err = create_schema_v1(db)) != RH_OK)
+        if ((err = create_schema(db)) != RH_OK)
             goto fail;
         version = RH_SCHEMA_VERSION;
     } else if (version > RH_SCHEMA_VERSION) {
@@ -138,12 +178,9 @@ RhStore *store_open(const char *path, RhErr *out_err)
         g_log(RH_STORE_DOMAIN, G_LOG_LEVEL_WARNING,
               "库 schema v%d 高于本程序 v%d，已只读打开", version, RH_SCHEMA_VERSION);
     } else if (version < RH_SCHEMA_VERSION) {
-        /* M0 只有 v1；后续版本在此按 migration[] 逐级迁移 */
-        g_log(RH_STORE_DOMAIN, G_LOG_LEVEL_WARNING,
-              "库 schema v%d 需要迁移到 v%d，但本版本未提供迁移脚本",
-              version, RH_SCHEMA_VERSION);
-        err = RH_ERR_MIGRATE;
-        goto fail;
+        if ((err = migrate_schema(db, version)) != RH_OK)
+            goto fail;
+        version = RH_SCHEMA_VERSION;
     }
 
     RhStore *store = g_new0(RhStore, 1);
@@ -205,6 +242,29 @@ static void bind_text(sqlite3_stmt *stmt, int index, const char *value)
         sqlite3_bind_text(stmt, index, value, -1, SQLITE_TRANSIENT);
     else
         sqlite3_bind_null(stmt, index);
+}
+
+/* 原始字节列：NULL 表示旧库未回填；空 GBytes 表示合法的零字节路径。 */
+static void bind_blob(sqlite3_stmt *stmt, int index, GBytes *bytes)
+{
+    if (bytes == NULL) {
+        sqlite3_bind_null(stmt, index);
+        return;
+    }
+    gsize len = 0;
+    const void *data = g_bytes_get_data(bytes, &len);
+    sqlite3_bind_blob(stmt, index, data, (int)len, SQLITE_TRANSIENT);
+}
+
+static GBytes *column_bytes(sqlite3_stmt *stmt, int index)
+{
+    if (sqlite3_column_type(stmt, index) == SQLITE_NULL)
+        return NULL;
+    const void *data = sqlite3_column_blob(stmt, index);
+    int len = sqlite3_column_bytes(stmt, index);
+    if (data == NULL || len <= 0)
+        return g_bytes_new("", 0);
+    return g_bytes_new(data, (gsize)len);
 }
 
 static void bind_int_or_null(sqlite3_stmt *stmt, int index, gint value)
@@ -283,8 +343,8 @@ static RhErr insert_roms(RhStore *store, const char *game_id, const GPtrArray *r
     sqlite3_stmt *stmt = NULL;
     RhErr err = prepare(store->db,
                         "INSERT INTO roms (game_id, filename, disc_no, size,"
-                        " crc32, md5, sha1, sort)"
-                        " VALUES (?,?,?,?,?,?,?,?);",
+                        " crc32, md5, sha1, sort, filename_raw)"
+                        " VALUES (?,?,?,?,?,?,?,?,?);",
                         &stmt);
     if (err != RH_OK)
         return err;
@@ -309,6 +369,7 @@ static RhErr insert_roms(RhStore *store, const char *game_id, const GPtrArray *r
         bind_text(stmt, 6, rom->md5);
         bind_text(stmt, 7, rom->sha1);
         sqlite3_bind_int(stmt, 8, rom->sort);
+        bind_blob(stmt, 9, rom->filename_raw);
 
         if (sqlite3_step(stmt) != SQLITE_DONE) {
             g_log(RH_STORE_DOMAIN, G_LOG_LEVEL_WARNING, "写 roms 失败: %s",
@@ -329,8 +390,9 @@ static RhErr insert_media(RhStore *store, const char *game_id, const GPtrArray *
 
     sqlite3_stmt *stmt = NULL;
     RhErr err = prepare(store->db,
-                        "INSERT INTO media (game_id, kind, filename, size, sort)"
-                        " VALUES (?,?,?,?,?);",
+                        "INSERT INTO media (game_id, kind, filename, size, sort,"
+                        " filename_raw)"
+                        " VALUES (?,?,?,?,?,?);",
                         &stmt);
     if (err != RH_OK)
         return err;
@@ -352,6 +414,7 @@ static RhErr insert_media(RhStore *store, const char *game_id, const GPtrArray *
         else
             sqlite3_bind_null(stmt, 4);
         sqlite3_bind_int(stmt, 5, item->sort);
+        bind_blob(stmt, 6, item->filename_raw);
 
         if (sqlite3_step(stmt) != SQLITE_DONE) {
             g_log(RH_STORE_DOMAIN, G_LOG_LEVEL_WARNING, "写 media 失败: %s",
@@ -426,8 +489,8 @@ static RhErr insert_game_row(RhStore *store, const RhGame *game)
                         "INSERT INTO games (id, platform, name, game_main_name, dir_path,"
                         " developer, publisher, year, genre, players, rating, region,"
                         " description, is_multi_disc, is_arcade, rom_format, rom_status,"
-                        " dat_source, patch_type, created_at, updated_at)"
-                        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,"
+                        " dat_source, patch_type, dir_path_raw, created_at, updated_at)"
+                        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,"
                         " COALESCE(?, strftime('%Y-%m-%dT%H:%M:%SZ','now')),"
                         " strftime('%Y-%m-%dT%H:%M:%SZ','now'));",
                         &stmt);
@@ -453,7 +516,8 @@ static RhErr insert_game_row(RhStore *store, const RhGame *game)
     bind_text(stmt, 17, game->rom_status);
     bind_text(stmt, 18, game->dat_source);
     bind_text(stmt, 19, game->patch_type);
-    bind_text(stmt, 20, game->created_at);
+    bind_blob(stmt, 20, game->dir_path_raw);
+    bind_text(stmt, 21, game->created_at);
 
     err = sqlite3_step(stmt) == SQLITE_DONE ? RH_OK : RH_ERR_DB;
     if (err != RH_OK)
@@ -509,7 +573,7 @@ RhErr store_game_update(RhStore *store, const RhGame *game)
                   " dir_path = ?, developer = ?, publisher = ?, year = ?, genre = ?,"
                   " players = ?, rating = ?, region = ?, description = ?,"
                   " is_multi_disc = ?, is_arcade = ?, rom_format = ?, rom_status = ?,"
-                  " dat_source = ?, patch_type = ?,"
+                  " dat_source = ?, patch_type = ?, dir_path_raw = ?,"
                   " updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')"
                   " WHERE id = ?;",
                   &stmt);
@@ -534,7 +598,8 @@ RhErr store_game_update(RhStore *store, const RhGame *game)
     bind_text(stmt, 16, game->rom_status);
     bind_text(stmt, 17, game->dat_source);
     bind_text(stmt, 18, game->patch_type);
-    bind_text(stmt, 19, game->id);
+    bind_blob(stmt, 19, game->dir_path_raw);
+    bind_text(stmt, 20, game->id);
 
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -567,7 +632,7 @@ RhErr store_game_delete(RhStore *store, const char *id)
     "id, platform, name, game_main_name, dir_path, developer, publisher,"   \
     " year, genre, players, rating, region, description, is_multi_disc,"   \
     " is_arcade, rom_format, rom_status, dat_source, patch_type,"          \
-    " created_at, updated_at"
+    " created_at, updated_at, dir_path_raw"
 
 static RhGame *read_game_row(sqlite3_stmt *stmt)
 {
@@ -597,6 +662,7 @@ static RhGame *read_game_row(sqlite3_stmt *stmt)
     game->patch_type = column_str(stmt, 18);
     game->created_at = column_str(stmt, 19);
     game->updated_at = column_str(stmt, 20);
+    game->dir_path_raw = column_bytes(stmt, 21);
     return game;
 }
 
@@ -648,7 +714,8 @@ GPtrArray *store_roms_for_game(RhStore *store, const char *id, RhErr *out_err)
 
     sqlite3_stmt *stmt = NULL;
     RhErr err = prepare(store->db,
-                        "SELECT filename, disc_no, size, crc32, md5, sha1, sort"
+                        "SELECT filename, disc_no, size, crc32, md5, sha1, sort,"
+                        " filename_raw"
                         " FROM roms WHERE game_id = ? ORDER BY sort, filename;",
                         &stmt);
     if (err != RH_OK) {
@@ -669,6 +736,7 @@ GPtrArray *store_roms_for_game(RhStore *store, const char *id, RhErr *out_err)
         rom->md5 = column_str(stmt, 4);
         rom->sha1 = column_str(stmt, 5);
         rom->sort = sqlite3_column_int(stmt, 6);
+        rom->filename_raw = column_bytes(stmt, 7);
         g_ptr_array_add(roms, rom);
     }
     if (rc != SQLITE_DONE && out_err != NULL)
@@ -696,9 +764,10 @@ GPtrArray *store_media_for_game(RhStore *store, const char *id, const char *kind
     }
 
     const char *sql = kind == NULL
-        ? "SELECT kind, filename, size, sort FROM media WHERE game_id = ?"
+        ? "SELECT kind, filename, size, sort, filename_raw FROM media WHERE game_id = ?"
           " ORDER BY kind, sort, filename;"
-        : "SELECT kind, filename, size, sort FROM media WHERE game_id = ? AND kind = ?"
+        : "SELECT kind, filename, size, sort, filename_raw FROM media"
+          " WHERE game_id = ? AND kind = ?"
           " ORDER BY sort, filename;";
 
     sqlite3_stmt *stmt = NULL;
@@ -721,6 +790,7 @@ GPtrArray *store_media_for_game(RhStore *store, const char *id, const char *kind
         item->has_size = sqlite3_column_type(stmt, 2) != SQLITE_NULL;
         item->size = item->has_size ? sqlite3_column_int64(stmt, 2) : 0;
         item->sort = sqlite3_column_int(stmt, 3);
+        item->filename_raw = column_bytes(stmt, 4);
         g_ptr_array_add(media, item);
     }
     if (rc != SQLITE_DONE && out_err != NULL)

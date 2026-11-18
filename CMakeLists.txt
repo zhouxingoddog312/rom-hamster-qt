@@ -54,6 +54,7 @@ add_library(romham SHARED
     src/core/rh-err.c
     src/core/rh-ctx.c
     src/core/rh-path.c
+    src/core/rh-fname.c
     src/core/rh-str.c
     src/core/rh-records.c
     src/core/platform.c
@@ -173,6 +174,10 @@ if(BUILD_TESTING)
     add_executable(test-str tests/unit/test-str.c)
     target_link_libraries(test-str PRIVATE romham PkgConfig::GLIB2)
     add_test(NAME core/str COMMAND test-str)
+
+    add_executable(test-fname tests/unit/test-fname.c)
+    target_link_libraries(test-fname PRIVATE romham PkgConfig::GLIB2)
+    add_test(NAME core/fname COMMAND test-fname)
 
     add_executable(test-records tests/unit/test-records.c)
     target_link_libraries(test-records PRIVATE romham PkgConfig::GLIB2)

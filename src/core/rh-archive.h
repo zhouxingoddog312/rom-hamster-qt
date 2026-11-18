@@ -2,7 +2,8 @@
  * rh-archive.h —— 压缩包列表 / 解压 / 加密探测（ARCHITECTURE.md §5）
  *
  * 边界：只知道压缩包，不知道"ROM 是什么"，不判定平台、不写库、不打印。
- * 入参与返回的条目名一律是 UTF-8，返回的条目名分隔符统一为 '/'。
+ * 条目的显示名一律是 UTF-8，分隔符统一为 '/'；同时保留条目名原始字节
+ * （raw_pathname），非 UTF-8 来源可按原始字节还原，见 rh-fname.h。
  *
  * 文件名带 rh- 前缀是为了避开 libarchive 的 <archive.h>：src/core 在
  * 编译器的 -I 路径里，若本文件叫 archive.h，`#include <archive.h>` 会
@@ -14,9 +15,12 @@
 #include <glib.h>
 
 #include "rh-err.h"
+#include "rh-fname.h"
 
 typedef struct {
-    gchar   *pathname;      /* UTF-8，'/' 分隔，目录条目不带结尾 '/' */
+    gchar   *pathname;      /* 显示名，UTF-8，'/' 分隔，目录条目不带结尾 '/' */
+    GBytes  *raw_pathname;  /* 条目名原始字节；非 UTF-8 时用于还原真实名字 */
+    RhFNameEncoding name_encoding; /* 判定结果：UTF-8 / GB18030 推测 / 转义兜底 */
     guint64  size;          /* 非负；目录为 0 */
     gboolean is_dir;
     gboolean is_encrypted;
@@ -25,6 +29,8 @@ typedef struct {
 typedef struct {
     GPtrArray *entries;     /* RhArchiveEntry* */
     gboolean   encrypted;   /* 任一条目加密，或格式声明整包加密 */
+    guint      guessed_names; /* 非 UTF-8 且按 GB18030 成功解码的条目数 */
+    guint      escaped_names; /* 非 UTF-8 且只能逐字节转义的条目数 */
 } RhArchiveList;
 
 typedef struct {
