@@ -13,6 +13,12 @@
 # If nothing matches, it stops with an error that names the missing executable,
 # lists every path it tried, and shows how to point the script at it.
 #
+# The zip must be self-contained: a MinGW build links against libglib,
+# libsqlite3, libxml2, libarchive, ... which normally live in MSYS2 and are not
+# on a stock Windows 11 PATH. After installing, the script walks the PE import
+# table with objdump and copies every dependency it can find in the toolchain
+# into bin\, then verifies the result with a System32-only PATH.
+#
 # The whole file is deliberately ASCII-only: Windows PowerShell 5.1 reads
 # scripts as ANSI when there is no BOM, so any non-ASCII byte can break
 # parsing on machines with a legacy code page.
@@ -28,7 +34,8 @@ param(
     [string]$StageDir = "build/stage-windows",
     [string]$CMake,
     [string]$Ninja,
-    [string]$WindeployQt
+    [string]$WindeployQt,
+    [string]$Objdump
 )
 
 $ErrorActionPreference = "Stop"
@@ -146,6 +153,69 @@ function Resolve-Tool {
     throw ($msg -join [Environment]::NewLine)
 }
 
+# Imported DLL names of one PE file, as reported by objdump -p.
+function Get-PeImports {
+    param([string]$Path, [string]$Objdump)
+    $lines = & $Objdump -p $Path 2>$null
+    foreach ($line in $lines) {
+        if ($line -match '^\s*DLL Name:\s*(\S+)\s*$') {
+            $matches[1]
+        }
+    }
+}
+
+# Copy the transitive non-system dependencies of $Roots next to them.
+# A dependency that is not found in $SearchDirs is assumed to be a Windows
+# system DLL (KERNEL32, msvcrt, ...) and is left alone; anything found in the
+# toolchain is copied, because a stock Windows 11 has none of it.
+function Copy-RuntimeDlls {
+    param(
+        [string]$StageBin,
+        [string]$Objdump,
+        [string[]]$Roots,
+        [string[]]$SearchDirs
+    )
+    $queue = New-Object System.Collections.Queue
+    $seen = @{}
+    foreach ($rootFile in $Roots) {
+        $queue.Enqueue($rootFile)
+    }
+    $copied = New-Object System.Collections.Generic.List[string]
+
+    while ($queue.Count -gt 0) {
+        $pe = [string]$queue.Dequeue()
+        foreach ($name in (Get-PeImports -Path $pe -Objdump $Objdump)) {
+            $key = $name.ToLowerInvariant()
+            if ($seen.ContainsKey($key)) { continue }
+            $seen[$key] = $true
+
+            $dest = Join-Path $StageBin $name
+            if (Test-Path -LiteralPath $dest) {
+                # Already shipped (our own libromham.dll, or a DLL that
+                # windeployqt copied): still scan it for its own dependencies.
+                $queue.Enqueue($dest)
+                continue
+            }
+
+            $source = $null
+            foreach ($dir in $SearchDirs) {
+                $candidate = Join-Path $dir $name
+                if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+                    $source = (Resolve-Path -LiteralPath $candidate).Path
+                    break
+                }
+            }
+            if (-not $source) { continue }
+
+            Copy-Item -LiteralPath $source -Destination $dest
+            $copied.Add($name)
+            $queue.Enqueue($dest)
+        }
+    }
+
+    return $copied
+}
+
 $root = (Resolve-Path "$PSScriptRoot/../..").Path
 $build = Join-Path $root $BuildDir
 $stage = Join-Path $root $StageDir
@@ -153,12 +223,19 @@ $dist = Join-Path $root "dist"
 $preset = if ($Gui) { "windows-gui" } else { "windows-cli" }
 $defaultBuildDir = if ($Gui) { "build/windows-gui" } else { "build/windows-cli" }
 
-Write-Host "[1/4] resolve tools"
+Write-Host "[1/5] resolve tools"
 $cmakeExe = Resolve-Tool -Display "CMake" -FileName "cmake.exe" `
     -ParamName "CMake" -Explicit $CMake `
     -EnvNames @("RH_CMAKE", "CMAKE_BIN", "CMAKE") `
     -PackageHint "mingw-w64-x86_64-cmake"
 Write-Host "      cmake: $cmakeExe"
+
+# objdump walks the PE import table; it ships with binutils, next to gcc.
+$objdumpExe = Resolve-Tool -Display "objdump" -FileName "objdump.exe" `
+    -ParamName "Objdump" -Explicit $Objdump `
+    -EnvNames @("RH_OBJDUMP") `
+    -PackageHint "mingw-w64-x86_64-binutils"
+Write-Host "      objdump: $objdumpExe"
 
 # Tools spawned by cmake (ninja, compiler, pkg-config) must be findable too.
 $cmakeDir = Split-Path -Parent $cmakeExe
@@ -166,7 +243,7 @@ if (($env:PATH -split ';') -notcontains $cmakeDir) {
     $env:PATH = "$cmakeDir;$env:PATH"
 }
 
-Write-Host "[2/4] cmake --install $build"
+Write-Host "[2/5] cmake --install $build"
 if (-not (Test-Path -LiteralPath (Join-Path $build "CMakeCache.txt"))) {
     # Not configured yet: configure it here with the preset, so the caller does
     # not have to run cmake manually in a shell where it is not on PATH.
@@ -218,17 +295,53 @@ if ($Gui) {
         -ExtraCandidates $windeployqtCandidates `
         -PackageHint "mingw-w64-x86_64-qt6-base"
 
-    $exe = Join-Path $stage "bin/rom-hamster-gui.exe"
-    if (-not (Test-Path -LiteralPath $exe)) {
-        throw "$exe is missing; the GUI build directory does not contain a built rom-hamster-gui."
+    $guiExe = Join-Path $stage "bin/rom-hamster-gui.exe"
+    if (-not (Test-Path -LiteralPath $guiExe)) {
+        throw "$guiExe is missing; the GUI build directory does not contain a built rom-hamster-gui."
     }
-    Write-Host "[3/4] windeployqt: $windeployqtExe"
-    & $windeployqtExe --release --no-translations --no-opengl-sw $exe
+    Write-Host "[3/5] windeployqt: $windeployqtExe"
+    & $windeployqtExe --release --no-translations --no-opengl-sw $guiExe
     if ($LASTEXITCODE -ne 0) {
         throw "windeployqt failed (exit code $LASTEXITCODE)."
     }
 } else {
-    Write-Host "[3/4] CLI only (pass -Gui to include the GUI)"
+    Write-Host "[3/5] CLI only (pass -Gui to include the GUI)"
+}
+
+# The MinGW runtime (glib, sqlite3, libxml2, libarchive, zlib, ...) lives in
+# MSYS2 and is on no stock Windows PATH. Copy the closure next to the binaries
+# so the zip works on a machine that never had MSYS2.
+Write-Host "[4/5] bundle runtime DLLs"
+$stageBin = Join-Path $stage "bin"
+$dllSearchDirs = @()
+foreach ($msysRoot in (Get-Msys2Roots)) {
+    foreach ($sub in $msysSubdirs) {
+        $dllSearchDirs += (Join-Path $msysRoot $sub)
+    }
+}
+$dllSearchDirs += $cmakeDir
+
+$rootsToScan = @(Join-Path $stageBin "rom-hamster.exe")
+if ($Gui) { $rootsToScan += (Join-Path $stageBin "rom-hamster-gui.exe") }
+$bundled = Copy-RuntimeDlls -StageBin $stageBin -Objdump $objdumpExe `
+    -Roots $rootsToScan -SearchDirs $dllSearchDirs
+foreach ($name in $bundled) {
+    Write-Host "      + $name"
+}
+Write-Host "      bundled $($bundled.Count) DLLs"
+
+# Verify with a PATH that only has System32: this is what a clean Windows 11
+# looks like, and it is the check that the old "run it from the repo" missed.
+Write-Host "      verify: rom-hamster.exe --version with System32-only PATH"
+$savedPath = $env:PATH
+try {
+    $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+    $null = & (Join-Path $stageBin "rom-hamster.exe") --version
+    if ($LASTEXITCODE -ne 0) {
+        throw "Bundled CLI failed to start with a System32-only PATH (exit code $LASTEXITCODE). A runtime DLL is probably still missing."
+    }
+} finally {
+    $env:PATH = $savedPath
 }
 
 # Project version: parse the project() call itself. A plain "VERSION x.y"
@@ -243,6 +356,6 @@ $ver = $versionMatch.Groups[1].Value
 $suffix = if ($Gui) { "windows-x64" } else { "windows-x64-cli" }
 $zip = Join-Path $dist "rom-hamster-$ver-$suffix.zip"
 Remove-Item -Force $zip -ErrorAction SilentlyContinue
-Write-Host "[4/4] Compress-Archive -> $zip"
+Write-Host "[5/5] Compress-Archive -> $zip"
 Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zip
 Write-Host "Done: $zip"

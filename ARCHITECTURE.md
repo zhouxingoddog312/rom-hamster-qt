@@ -1021,10 +1021,12 @@ GUI 二进制通过 `rpath` + `qt.conf` 指向 `/usr/lib/rom-hamster/qt6/` 与�
 
 | 产物 | 内容 | 说明 |
 |---|---|---|
-| `rom-hamster-<ver>-win64.zip` | `bin/rom-hamster.exe`、`bin/rom-hamster-gui.exe`、`bin/romham.dll`、`Qt6*.dll`、`plugins/`、`share/` | 便携版，解压即用 |
+| `rom-hamster-<ver>-windows-x64.zip` / `...-windows-x64-cli.zip` | `bin/rom-hamster.exe`、`bin/libromham.dll`、MinGW 运行时 DLL（glib/intl/pcre2/iconv/sqlite3/libxml2/zlib…）、GUI 版另加 `bin/rom-hamster-gui.exe` 与 `Qt6*.dll`、`bin/{platforms,imageformats,styles}/`、`etc/rom-hamster/`、`share/` | 便携版，解压即用；目标机不需要 MSYS2、Qt 或 MinGW 运行时 |
 | `rom-hamster-<ver>-win64-setup.exe` | 同上 + Inno Setup 脚本产物 | 安装到 `%ProgramFiles%\rom-hamster`；开始菜单；可选加入 PATH；卸载保留 `%APPDATA%` 用户数据 |
 
-Qt 动态库由 `windeployqt` 收集；MSVC 运行库通过 `windeployqt --compiler-runtime` 或随包 VC++ Redist 解决。**不提供 MSIX/商店包**；**不做代码签名**，发布页公布 SHA-256 校验和与构建来源，并说明 SmartScreen 提示。
+**zip 必须自包含**：`libromham.dll` 与 CLI/GUI 的传递依赖（glib、gio、gobject、gmodule、intl、iconv、pcre2、zlib、sqlite3、libxml2、libarchive 及其依赖，以及 GUI 的 `libstdc++`/`libgcc`/Qt）都要复制到 `bin/`。`packaging/windows/package-zip.ps1` 用 `objdump -p` 递归读 PE 导入表，凡能在工具链目录解析到的 DLL 一律复制（解析不到的视为 Windows 系统 DLL），GUI 版先跑 `windeployqt` 再补非 Qt 依赖。Qt 动态库由 `windeployqt` 收集；MSVC 场景由 `windeployqt --compiler-runtime` 或随包 VC++ Redist 解决。**不提供 MSIX/商店包**；**不做代码签名**，发布页公布 SHA-256 校验和与构建来源，并说明 SmartScreen 提示。
+
+验收必须在**干净环境**做：把 `PATH` 限制为 `%SystemRoot%\System32;%SystemRoot%` 后运行 `bin\rom-hamster.exe --version`。只在仓库目录里跑会命中开发机上 `msys64\mingw64\bin` 里已有的 DLL，从而把「缺 DLL」测成「可运行」——这正是早期「解压 zip 后能跑」的结论失效的原因。脚本第 4 步内置了这条检查，缺依赖会直接失败而不是产出坏包。
 
 ### 9.2 配置文件的安装位置
 
@@ -1041,6 +1043,8 @@ Windows：
 - `%APPDATA%\rom-hamster\*.conf` —— 用户层。
 
 配置优先级（低 → 高）：内置默认 → 安装目录出厂默认 → 系统层 → 用户层 → 命令行参数（详见 §10.1–§10.2）。任何层都不写入安装目录。
+
+zip 形态下 `<install>` 指解压根目录（即 `bin\` 的上一级）；查找必须基于**可执行文件自身路径**（`GetModuleFileNameW`）而不是当前工作目录，否则从任意目录启动就找不到 `etc/`、`share/`。M1 的 CLI 尚未实现 `rh-config`，`--version` 不读取任何配置文件，因此这两个目录目前只是随包安装、尚未被读取；配置加载在 M2 接入时按上述规则补「exe 相对路径」这一层。
 
 ### 9.3 命名与命令集
 
@@ -1245,7 +1249,7 @@ ROM_ROOT = /home/zhoux/roms
 | 阶段 | 交付物 | 验收 |
 |---|---|---|
 | **M0 骨架** | CMake 四组构建配置（Linux/Windows × CLI/GUI）、`RhCtx`/`RhErr`、`rh-config` 五层加载、`store_open`+v1 schema+迁移、`rom-hamster --version`、`rom-hamster-gui` 空窗口 | Linux/Windows × CLI/GUI 四组构建通过；`ldd`/`dumpbin` 断言核心不含 Qt/GTK；两个二进制在两个平台都能启动 |
-| **M1 存储与规则** | `store_*` 全量、`RhGame`/`RhFilter`、`platform.c` 解析 101 平台、deb 骨架 + **首个可安装 deb**、Windows zip 骨架 | 101 个平台、5 段规则全部解析成功且媒体类型识别有单测；`store_*` 的 CRUD、`dir_path` UNIQUE、级联删除有测试；`user_version` 高于程序版本时只读拒绝写入的用例通过；`dpkg -i` 与解压 zip 后 `rom-hamster --version` 可运行；`lintian` 无 error |
+| **M1 存储与规则** | `store_*` 全量、`RhGame`/`RhFilter`、`platform.c` 解析 101 平台、deb 骨架 + **首个可安装 deb**、Windows zip 骨架 | 101 个平台、5 段规则全部解析成功且媒体类型识别有单测；`store_*` 的 CRUD、`dir_path` UNIQUE、级联删除有测试；`user_version` 高于程序版本时只读拒绝写入的用例通过；`dpkg -i` 后 `rom-hamster --version` 可运行；**解压 zip 后，在只保留 System32 的 PATH 下 `bin\rom-hamster.exe --version` 返回 0**（zip 自包含）；`lintian` 无 error |
 | **M2 导入** | `classify`、`archive`（libarchive）、`job` 作业线程、`dat` 索引、`library` 整库、`import` 编排 | fixtures 的 5 类压缩包（zip/7z/rar/单 ROM/混合）+ PSV 特征包 + 二义扩展名 + 多碟 CD 全部落到正确目录；两个平台上进程被杀后重启能续做且库里无半个条目；该阶段 deb 与 zip 仍可安装 |
 | **M3 检索/管理/导出** | `query`、`detail`（CLI 纯文本）、`manage`、`export` 模板引擎 + 三份前端规格 | 13 维筛选 + 4 排序键结果与直接 SQL 对齐；导出的 ES-DE / Pegasus 清单能被对应前端正常读取；golden file 逐字节 diff 通过；故意写错的模板在**加载期**报出文件名与行号 |
 | **M4 GUI** | `ui-qt`、`QTableView` 主窗口、详情页 8 类媒体分页、导入进度/取消、首次运行引导、拖拽导入、单实例、版本检查（首版范围严格按 §11） | 见下方 §14.1 量化指标；空配置首启能走完"选目录 → 建库 → 主窗口"；拖入目录触发导入并有可见进度；中文/日文长文件名正常显示；Windows 使用系统文件对话框；断网时版本检查静默且不阻塞启动；视频默认外部播放器（Multimedia 可选构建不作为验收前提） |
@@ -1282,7 +1286,7 @@ ROM_ROOT = /home/zhoux/roms
 | 101 个平台、5 段规则全部解析且媒体类型识别有单测 | 已完成 | `core/platform` 4 用例；媒体类型在 `core/classify`/`core/import` 覆盖 |
 | `store_*` 的 CRUD、`dir_path` UNIQUE、级联删除有测试 | 已完成 | `core/store` 10 用例，含 UNIQUE 冲突拒绝与级联清理 |
 | `user_version` 高于程序版本时只读拒绝写入 | 已完成 | `store_open` 只读打开 + 全部写接口返回 `RH_ERR_SCHEMA_TOO_NEW` |
-| `dpkg -i` 与解压 zip 后 `rom-hamster --version` 可运行 | 部分完成 | deb 已可安装并运行（`rom-hamster` + `rom-hamster-data` 两包；GUI 包待 Qt 部署接入）；zip 组装脚本已就绪，待 Windows 侧实跑 |
+| `dpkg -i` 与解压 zip 后 `rom-hamster --version` 可运行 | 已完成 | deb 两包可安装并运行（GUI 包待 Qt 部署接入）；CLI 与 GUI 两个 zip 均自带 MinGW 运行时（CLI 7 个 DLL、GUI 25 个 DLL + Qt 部署），解压后在只含 `System32` 的 PATH 下 `--version` 退出码 0 |
 | `lintian` 无 error | 满足（deb 两包） | `lintian` 仅一条 warning（私有目录库的 ldconfig trigger），无 error |
 
 结论：**M1 未结项**。核心模块部分已齐，缺打包验收两项。Windows 的 `dumpbin` 断言仍留到 M5，不计为已通过。
