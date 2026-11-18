@@ -678,6 +678,90 @@ static void test_disk_and_sample(void)
     g_free(dir);
 }
 
+/* ---------------------------------------------------------------------------
+ * 重导：内容未变跳过、force 强制重建、内容变化后重建
+ * ------------------------------------------------------------------------- */
+
+static void test_reimport_unchanged(void)
+{
+    gchar *dir = g_dir_make_tmp("romham-dat-XXXXXX", NULL);
+    g_assert_nonnull(dir);
+    gchar *dat_path = write_text(dir, "again.dat", SAMPLE_DAT);
+    RhStore *store = open_store_in(dir, NULL);
+
+    RhDatImportOptions options = {0};
+    options.platform = "gb";
+    RhDatImportStats stats;
+    g_assert_cmpint(rh_dat_import(store, dat_path, &options, &stats), ==, RH_OK);
+    g_assert_cmpint(stats.entry_count, ==, 4);
+    g_assert_false(stats.unchanged);
+
+    gchar *sha1_before = NULL;
+    gint64 dat_id_before = 0;
+    gint64 entries_before = 0;
+    g_assert_cmpint(store_dat_lookup(store, "gb", dat_path, &sha1_before,
+                                     &dat_id_before, &entries_before), ==, RH_OK);
+    g_assert_nonnull(sha1_before);
+    g_assert_cmpint(entries_before, ==, 4);
+
+    /* 同内容重写文件（mtime 变了）：按内容哈希判定为未变，不解析。 */
+    g_assert_nonnull(write_text(dir, "again.dat", SAMPLE_DAT));
+    ProgressState progress = {0};
+    options.progress = progress_cb;
+    options.user_data = &progress;
+    g_assert_cmpint(rh_dat_import(store, dat_path, &options, &stats), ==, RH_OK);
+    g_assert_true(stats.unchanged);
+    g_assert_cmpint(stats.entry_count, ==, 4);
+    g_assert_cmpint(progress.calls, ==, 0); /* 连解析都没开始 */
+
+    gchar *sha1_after = NULL;
+    gint64 dat_id_after = 0;
+    gint64 entries_after = 0;
+    g_assert_cmpint(store_dat_lookup(store, "gb", dat_path, &sha1_after,
+                                     &dat_id_after, &entries_after), ==, RH_OK);
+    g_assert_cmpstr(sha1_after, ==, sha1_before);
+    g_assert_cmpint(dat_id_after, ==, dat_id_before);
+    g_assert_cmpint(entries_after, ==, 4);
+    g_free(sha1_after);
+
+    /* force：内容没变也重建索引，dat_id 不变。 */
+    options.force = TRUE;
+    progress.calls = 0;
+    g_assert_cmpint(rh_dat_import(store, dat_path, &options, &stats), ==, RH_OK);
+    g_assert_false(stats.unchanged);
+    g_assert_cmpint(stats.entry_count, ==, 4);
+    g_assert_cmpint(progress.calls, >, 0);
+    options.force = FALSE;
+
+    /* 内容变化：新 game 入库，来源 id 不变、哈希更新。 */
+    static const char *changed =
+        "<?xml version=\"1.0\"?>\n<datafile>\n"
+        "<header><name>Test DAT</name><version>20260102</version></header>\n"
+        "<game name=\"Gamma\"><rom name=\"gamma.bin\" size=\"8\""
+        " crc=\"44444444\"/></game>\n"
+        "</datafile>\n";
+    g_free(write_text(dir, "again.dat", changed));
+    g_assert_cmpint(rh_dat_import(store, dat_path, &options, &stats), ==, RH_OK);
+    g_assert_false(stats.unchanged);
+    g_assert_cmpint(stats.entry_count, ==, 1);
+
+    gchar *sha1_changed = NULL;
+    gint64 dat_id_changed = 0;
+    gint64 entries_changed = 0;
+    g_assert_cmpint(store_dat_lookup(store, "gb", dat_path, &sha1_changed,
+                                     &dat_id_changed, &entries_changed), ==, RH_OK);
+    g_assert_cmpint(dat_id_changed, ==, dat_id_before);
+    g_assert_cmpint(entries_changed, ==, 1);
+    g_assert_cmpstr(sha1_changed, !=, sha1_before);
+    g_free(sha1_changed);
+    g_free(sha1_before);
+
+    store_close(store);
+    cleanup_dir(dir);
+    g_free(dat_path);
+    g_free(dir);
+}
+
 int main(int argc, char **argv)
 {
     rh_test_init(&argc, &argv);
@@ -689,5 +773,6 @@ int main(int argc, char **argv)
     g_test_add_func("/dat/gbk-encoding", test_gbk_dat);
     g_test_add_func("/dat/invalid-bytes-escaped", test_invalid_bytes_escaped);
     g_test_add_func("/dat/disk-and-sample", test_disk_and_sample);
+    g_test_add_func("/dat/reimport-unchanged", test_reimport_unchanged);
     return g_test_run();
 }

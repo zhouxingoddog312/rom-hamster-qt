@@ -2,7 +2,6 @@
 
 #include <sqlite3.h>
 
-#include "rh-hash.h"
 #include "rh-records.h"
 #include "store-schema.h"
 
@@ -1096,23 +1095,15 @@ RhErr store_dat_begin(RhStore *store, const char *platform, const char *path,
     if (platform == NULL || path == NULL || out_id == NULL)
         return RH_ERR_INVALID;
 
-    /* 计算 DAT 文件自身 SHA1：用于识别原地替换同名 DAT。
-     * 读不到文件时静默跳过（file_sha1 写 NULL），不因此拒绝导入。 */
-    RhHashResult file_hash;
-    rh_hash_result_clear(&file_hash);
-    RhHashOptions hash_opts = { .flags = RH_HASH_SHA1 };
-    gchar *file_sha1 = NULL;
-    if (rh_hash_file(path, &hash_opts, &file_hash) == RH_OK && file_hash.has_sha1)
-        file_sha1 = g_strdup(file_hash.sha1);
+    /* 文件自身哈希不在这里算：它由 dat.c 在解析时顺带产出，
+     * store_dat_finish 回填，避免为了哈希再整份读一次 DAT。 */
 
     /* 同一 (platform, path) 重复导入 = 替换：先清旧索引，再刷新元数据。 */
     sqlite3_stmt *select = NULL;
     err = prepare(store->db, "SELECT id FROM dats WHERE platform = ? AND path = ?;",
                   &select);
-    if (err != RH_OK) {
-        g_free(file_sha1);
+    if (err != RH_OK)
         return err;
-    }
 
     bind_text(select, 1, platform);
     bind_text(select, 2, path);
@@ -1133,7 +1124,6 @@ RhErr store_dat_begin(RhStore *store, const char *platform, const char *path,
         if (err == RH_OK)
             err = prepare(store->db,
                           "UPDATE dats SET name = ?, version = ?, encoding = ?,"
-                          " file_sha1 = ?,"
                           " imported_at = strftime('%Y-%m-%dT%H:%M:%SZ','now'),"
                           " entry_count = 0, skipped = 0 WHERE id = ?;",
                           &stmt);
@@ -1141,17 +1131,16 @@ RhErr store_dat_begin(RhStore *store, const char *platform, const char *path,
             bind_text(stmt, 1, name);
             bind_text(stmt, 2, version);
             bind_text(stmt, 3, encoding);
-            bind_text(stmt, 4, file_sha1);
-            sqlite3_bind_int64(stmt, 5, dat_id);
+            sqlite3_bind_int64(stmt, 4, dat_id);
             err = sqlite3_step(stmt) == SQLITE_DONE ? RH_OK : RH_ERR_DB;
             sqlite3_finalize(stmt);
             stmt = NULL;
         }
     } else {
         err = prepare(store->db,
-                      "INSERT INTO dats (platform, path, name, version, encoding, file_sha1,"
+                      "INSERT INTO dats (platform, path, name, version, encoding,"
                       " imported_at, entry_count, skipped)"
-                      " VALUES (?,?,?,?,?,?, strftime('%Y-%m-%dT%H:%M:%SZ','now'), 0, 0);",
+                      " VALUES (?,?,?,?,?, strftime('%Y-%m-%dT%H:%M:%SZ','now'), 0, 0);",
                       &stmt);
         if (err == RH_OK) {
             bind_text(stmt, 1, platform);
@@ -1159,7 +1148,6 @@ RhErr store_dat_begin(RhStore *store, const char *platform, const char *path,
             bind_text(stmt, 3, name);
             bind_text(stmt, 4, version);
             bind_text(stmt, 5, encoding);
-            bind_text(stmt, 6, file_sha1);
             err = sqlite3_step(stmt) == SQLITE_DONE ? RH_OK : RH_ERR_DB;
             sqlite3_finalize(stmt);
             stmt = NULL;
@@ -1168,7 +1156,6 @@ RhErr store_dat_begin(RhStore *store, const char *platform, const char *path,
         }
     }
 
-    g_free(file_sha1);
     if (err == RH_OK)
         *out_id = dat_id;
     return err;
@@ -1238,7 +1225,8 @@ RhErr store_dat_entries_add(RhStore *store, gint64 dat_id, const GPtrArray *entr
 }
 
 RhErr store_dat_finish(RhStore *store, gint64 dat_id, const char *name,
-                       const char *version, gint64 skipped, gint64 *out_count)
+                       const char *version, const char *file_sha1,
+                       gint64 skipped, gint64 *out_count)
 {
     RhErr err = ensure_writable(store);
     if (err != RH_OK)
@@ -1264,7 +1252,8 @@ RhErr store_dat_finish(RhStore *store, gint64 dat_id, const char *name,
     sqlite3_stmt *stmt = NULL;
     err = prepare(store->db,
                   "UPDATE dats SET entry_count = ?, skipped = ?,"
-                  " name = COALESCE(?, name), version = COALESCE(?, version)"
+                  " name = COALESCE(?, name), version = COALESCE(?, version),"
+                  " file_sha1 = COALESCE(?, file_sha1)"
                   " WHERE id = ?;",
                   &stmt);
     if (err != RH_OK)
@@ -1273,7 +1262,8 @@ RhErr store_dat_finish(RhStore *store, gint64 dat_id, const char *name,
     sqlite3_bind_int64(stmt, 2, skipped);
     bind_text(stmt, 3, name);
     bind_text(stmt, 4, version);
-    sqlite3_bind_int64(stmt, 5, dat_id);
+    bind_text(stmt, 5, file_sha1);
+    sqlite3_bind_int64(stmt, 6, dat_id);
     err = sqlite3_step(stmt) == SQLITE_DONE ? RH_OK : RH_ERR_DB;
     sqlite3_finalize(stmt);
 
@@ -1341,6 +1331,41 @@ RhErr store_dat_count(RhStore *store, gint64 *out)
         err = RH_ERR_DB;
     sqlite3_finalize(stmt);
     return err;
+}
+
+RhErr store_dat_lookup(RhStore *store, const char *platform, const char *path,
+                       gchar **out_file_sha1, gint64 *out_id,
+                       gint64 *out_entry_count)
+{
+    if (out_file_sha1 != NULL)
+        *out_file_sha1 = NULL;
+    if (out_id != NULL)
+        *out_id = 0;
+    if (out_entry_count != NULL)
+        *out_entry_count = 0;
+    if (store == NULL || platform == NULL || path == NULL)
+        return RH_ERR_INVALID;
+
+    sqlite3_stmt *stmt = NULL;
+    RhErr err = prepare(store->db,
+                        "SELECT file_sha1, id, entry_count FROM dats"
+                        " WHERE platform = ? AND path = ?;",
+                        &stmt);
+    if (err != RH_OK)
+        return err;
+
+    bind_text(stmt, 1, platform);
+    bind_text(stmt, 2, path);
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        if (out_file_sha1 != NULL)
+            *out_file_sha1 = column_str(stmt, 0);
+        if (out_id != NULL)
+            *out_id = sqlite3_column_int64(stmt, 1);
+        if (out_entry_count != NULL)
+            *out_entry_count = sqlite3_column_int64(stmt, 2);
+    }
+    sqlite3_finalize(stmt);
+    return RH_OK;
 }
 
 static RhDatEntry *read_dat_entry_row(sqlite3_stmt *stmt, int offset)

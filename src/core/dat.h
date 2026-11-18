@@ -39,6 +39,7 @@ typedef struct {
     gboolean    escaped;          /* 有字节无法解码，已按 %NN 转义保留 */
     gboolean    xml_error;        /* 结构错误：已入库的是出错前解析到的部分 */
     gboolean    cancelled;
+    gboolean    unchanged;        /* 内容哈希与已导入的一致，未重建索引 */
     gint64      games;            /* 解析到的 game/machine/resource 数 */
     gint64      entry_count;      /* 实际入库的 dat_entries 行数（rom + disk） */
     gint64      disk_entries;     /* 其中 entry_type = "disk" 的条目数（Clrmamepro disk 元素） */
@@ -61,6 +62,7 @@ typedef struct {
     const gchar     *dat_version; /* NULL：取 <header><version> */
     guint            batch_size;  /* 每批落库条目数，0 = 2000 */
     guint            chunk_size;  /* 读取块大小，0 = 64 KiB（测试可调小） */
+    gboolean         force;       /* TRUE：即使内容哈希未变也重建索引 */
     RhDatProgressFn  progress;    /* 可为 NULL */
     gpointer         user_data;
 } RhDatImportOptions;
@@ -76,7 +78,9 @@ void rh_dat_import_stats_clear(RhDatImportStats *stats);
  * 一条都没解析出来时返回 RH_ERR_INVALID。
  *
  * 同一 (platform, path) 重复导入是替换语义，dats.id 保持不变，
- * 已写入的 roms.dat_id 仍然有效。
+ * 已写入的 roms.dat_id 仍然有效。文件内容哈希在解析时顺带计算；
+ * 若与库中记录一致且未指定 force，则直接返回（stats.unchanged = TRUE），
+ * 不解析、不写库。换了解析逻辑需要重扫时用 force。
  *
  * 本函数自己管理事务，调用前 store 不能已处于事务中（返回 RH_ERR_INVALID）。
  */

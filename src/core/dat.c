@@ -321,6 +321,8 @@ typedef struct {
     gboolean     in_header;
     int          text_target;    /* 0 无 / 1 header.name / 2 header.version */
 
+    GChecksum   *file_sha1;      /* 解析过程中顺带算整个文件的 SHA1 */
+
     gboolean     in_game;
     gboolean     game_malformed;
     gchar       *game_name;
@@ -632,6 +634,8 @@ static ParseOutcome parse_document(FILE *fp, Decoder *dec, ParseState *state,
         if (n == 0)
             break;
         done += n;
+        if (state->file_sha1 != NULL)
+            g_checksum_update(state->file_sha1, (const guchar *)buffer, (gssize)n);
 
         GString *utf8 = g_string_sized_new(n + n / 2 + 16);
         DecStatus ds = decoder_feed(dec, buffer, (gsize)n, utf8, FALSE);
@@ -739,6 +743,7 @@ static void parse_state_init(ParseState *state, RhStore *store,
     state->batch = g_ptr_array_new_with_free_func(rh_dat_entry_free_func);
     state->header_name = g_string_new(NULL);
     state->header_version = g_string_new(NULL);
+    state->file_sha1 = g_checksum_new(G_CHECKSUM_SHA1);
     state->store_error = RH_OK;
 }
 
@@ -750,6 +755,8 @@ static void parse_state_clear(ParseState *state)
         g_string_free(state->header_name, TRUE);
     if (state->header_version != NULL)
         g_string_free(state->header_version, TRUE);
+    if (state->file_sha1 != NULL)
+        g_checksum_free(state->file_sha1);
     reset_game(state);
 }
 
@@ -775,6 +782,39 @@ RhErr rh_dat_import(RhStore *store, const char *path,
     if (g_stat(path, &st) != 0 || !S_ISREG(st.st_mode))
         return RH_ERR_IO;
     guint64 total_bytes = (guint64)st.st_size;
+
+    /*
+     * 内容未变则跳过重建：已导入过同一 (platform, path) 时，先比对文件
+     * SHA1。相同直接返回，省掉整次解析与索引重建；不同则照常重建。
+     * 这是唯一一处"为了比较而多读一遍"的场景，只在重导时发生。
+     */
+    if (!options->force) {
+        gchar *stored_sha1 = NULL;
+        gint64 stored_id = 0;
+        gint64 stored_entries = 0;
+        RhErr lookup = store_dat_lookup(store, options->platform, path,
+                                        &stored_sha1, &stored_id,
+                                        &stored_entries);
+        if (lookup != RH_OK) {
+            g_free(stored_sha1);
+            return lookup;
+        }
+        if (stored_sha1 != NULL) {
+            RhHashResult file_hash;
+            RhHashOptions hash_options = { .flags = RH_HASH_SHA1 };
+            RhErr hash_err = rh_hash_file(path, &hash_options, &file_hash);
+            if (hash_err == RH_OK && file_hash.has_sha1 &&
+                g_strcmp0(file_hash.sha1, stored_sha1) == 0) {
+                stats.unchanged = TRUE;
+                stats.entry_count = stored_entries;
+                g_free(stored_sha1);
+                if (out_stats != NULL)
+                    *out_stats = stats;
+                return RH_OK;
+            }
+        }
+        g_free(stored_sha1);
+    }
 
     FILE *fp = g_fopen(path, "rb");
     if (fp == NULL)
@@ -926,8 +966,11 @@ RhErr rh_dat_import(RhStore *store, const char *path,
         if (final_version == NULL || final_version[0] == '\0')
             final_version = header_version[0] != '\0' ? header_version : NULL;
 
+        gchar *file_sha1 = state.file_sha1 != NULL
+            ? g_strdup(g_checksum_get_string(state.file_sha1)) : NULL;
         err = store_dat_finish(store, dat_id, final_name, final_version,
-                               stats.skipped, &stats.entry_count);
+                               file_sha1, stats.skipped, &stats.entry_count);
+        g_free(file_sha1);
         g_free(header_name);
         g_free(header_version);
         g_free(basename);

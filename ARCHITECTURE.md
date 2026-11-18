@@ -2,7 +2,7 @@
 
 > 版本：v0.8（2026-11-18）
 > 本版修订：
-> 1. 吸收 DAT 生态调研结论：匹配顺序改为 `sha1 → md5 → crc32`（先按 size 缩小范围，无 size 条目豁免）；Redump `<disk>` 以 `entry_type='disk'` 入库（只取 name/sha1/md5），`<sample>` 只计数不入库；`dats.file_sha1` 记录 DAT 文件自身哈希；schema 升到 v4（`entry_type`、`file_sha1`、`(size, crc32)` 复合索引），新增 v3→v4 迁移。
+> 1. 吸收 DAT 生态调研结论：匹配顺序改为 `sha1 → md5 → crc32`（先按 size 缩小范围，无 size 条目豁免）；Redump `<disk>` 以 `entry_type='disk'` 入库（只取 name/sha1/md5），`<sample>` 只计数不入库；`dats.file_sha1` 记录 DAT 文件自身哈希（解析时顺带计算，不额外读盘）；重导时内容未变直接跳过，`force` 可强制重建；schema 升到 v4（`entry_type`、`file_sha1`、`(size, crc32)` 复合索引），新增 v3→v4 迁移。
 > 2. §3.5、§5、§7.5、§15.2 的匹配顺序与上述保持一致（刮削查询键同步为强到弱）。
 >
 > v0.7（2026-11-18）修订：
@@ -471,6 +471,7 @@ CREATE VIRTUAL TABLE games_fts USING fts5(
 | DAT | 全量入 `dats` / `dat_entries`，**不保留"直接扫 DAT 文件"的路径** | 两条路径必然行为分叉；入表后一次导入、多次索引查询 |
 | DAT 匹配键 | 只认校验值，`size > 0` 时先按 size 缩小范围（无 size 的 disk/nodump 条目豁免），哈希顺序 `sha1 → md5 → crc32`；同哈希命中多条即返回全部候选（`RH_DAT_MATCH_AMBIGUOUS`），**不按文件名兜底、不替调用方挑一条** | SHA1/MD5 抗碰撞能力强于 CRC32；文件名在不同 game 下重复、parent/clone 共用 rom 是常态，按名字挑会把错误写进库 |
 | DAT 导入事务 | **整份 DAT 一个事务**；取消/失败/编码重来全部回滚，库中不会出现半条 DAT | DAT 索引是批量重建而非逐条业务写入，单事务比逐批提交更快且能保证"要么完整、要么没有"；与 §3.5 的游戏记录"一条目一事务"不冲突 |
+| DAT 重导 | 先比 `file_sha1`：内容未变直接返回（`stats.unchanged`），`force` 强制重建；哈希在解析时顺带计算 | 常见场景是 DAT 没变只是重跑；跳过能省掉整次解析与索引重建，代价只有一次顺序读（仅重导时发生） |
 | 事务 | **每个条目一个事务**（记录写入 + `job_items` 状态同事务）；"每 N 条"只作为进度上报频率 | 崩溃最多丢当前条目，且库与队列状态始终自洽；不做跨条目大事务 |
 | 全文检索 | FTS5 `trigram`（需 SQLite ≥ 3.34）；启动探测不到则降级 `LIKE` 子串，不报错 | Debian 12 = 3.40、Ubuntu 22.04 = 3.37 均满足；降级只损失子串命中精度 |
 
@@ -529,9 +530,13 @@ RhErr store_dat_begin(RhStore *store, const char *platform, const char *path,
                       const char *encoding, gint64 *out_id);
 RhErr store_dat_entries_add(RhStore *store, gint64 dat_id, GPtrArray *entries);
 RhErr store_dat_finish(RhStore *store, gint64 dat_id, const char *name,
-                       const char *version, gint64 skipped, gint64 *out_count);
+                       const char *version, const char *file_sha1,
+                       gint64 skipped, gint64 *out_count);
 RhErr store_dat_abort(RhStore *store, gint64 dat_id);
 RhErr store_dat_count(RhStore *store, gint64 *out);
+RhErr store_dat_lookup(RhStore *store, const char *platform, const char *path,
+                       gchar **out_file_sha1, gint64 *out_id,
+                       gint64 *out_entry_count);  /* 重导前比对内容哈希 */
 RhErr store_dat_find_by_hash(RhStore *store, const char *algo,
                              const char *hash, gint64 size,
                              const char *platform,
@@ -1350,11 +1355,12 @@ ROM_ROOT = /home/zhoux/roms
 已完成 `archive`（列表/解压/加密探测，11 用例，含 GBK 条目名与非法字节兜底）、
 `rh-fname`（6 用例）、`rh-hash`（流式单次读盘三算，批量复用同一遍读取，7 用例：
 空文件、已知向量、超过缓冲区的大文件、中文路径、批量、取消、错误路径）与
-`dat`（Logiqx 流式导入 + 哈希匹配，8 用例：正常样本、大文件分块进度、CRC 唯一命中
+`dat`（Logiqx 流式导入 + 哈希匹配，9 用例：正常样本、大文件分块进度、CRC 唯一命中
 与多候选二义、SHA1 兜底、缺字段/畸形 XML、取消、GB18030 与非法字节、Redump
-disk 与 sample）。`import` 预扫描与 `store` 已接入原始字节，schema 升到 v4
-（v1→v2→v3→v4 迁移均有用例）。四组构建（Linux/Windows × CLI/GUI）通过；`ctest`
-Linux 17/17（80 用例）、Windows 15/15（76 用例）。下一步：`import` 执行阶段。
+disk 与 sample、内容未变跳过/force/变更重导）。`import` 预扫描与 `store` 已接入
+原始字节，schema 升到 v4（v1→v2→v3→v4 迁移均有用例）。四组构建
+（Linux/Windows × CLI/GUI）通过；`ctest` Linux 17/17（81 用例）、Windows 15/15
+（77 用例）。下一步：`import` 执行阶段。
 
 ### 14.1 M4 性能验收（量化）
 
@@ -1476,6 +1482,12 @@ size 时豁免，否则 disk 永远匹配不上），再按 `sha1 → md5 → cr
 **取消与追溯**：进度回调按块触发，返回 FALSE 立即中止并回滚，库中不留该 DAT；
 `roms.dat_id` 指向 `dats.id`，`games.dat_source` 存 DAT 名，二者共同回答"这条匹配
 来自哪份 DAT"，换 DAT 后可重算。
+
+**DAT 文件哈希与重导**：`dats.file_sha1` 在解析循环里顺带计算（与读取共用同一遍
+IO，不额外读盘），在 `store_dat_finish` 回填；编码回退导致整份重来时校验和一并
+重算。重导同一 `(platform, path)` 时先查旧哈希，一致且未指定 `force` 就直接返回
+`stats.unchanged = TRUE`，不解析、不删旧索引；内容变了才按替换语义重建。这条
+"先比哈希"是唯一需要额外读一遍文件的场景，换来的是跳过整次解析与插入。
 
 ---
 

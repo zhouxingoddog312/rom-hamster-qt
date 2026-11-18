@@ -86,9 +86,16 @@ RhErr store_dat_begin(RhStore *store, const char *platform, const char *path,
 RhErr store_dat_entries_add(RhStore *store, gint64 dat_id,
                             const GPtrArray *entries); /* RhDatEntry* */
 RhErr store_dat_finish(RhStore *store, gint64 dat_id, const char *name,
-                       const char *version, gint64 skipped, gint64 *out_count);
+                       const char *version, const char *file_sha1,
+                       gint64 skipped, gint64 *out_count);
 RhErr store_dat_abort(RhStore *store, gint64 dat_id);
 RhErr store_dat_count(RhStore *store, gint64 *out);
+
+/* 查 (platform, path) 已导入的 DAT 元数据，用于"内容未变则跳过重建"。
+ * 不存在返回 RH_OK，三个出参保持 NULL/0。 */
+RhErr store_dat_lookup(RhStore *store, const char *platform, const char *path,
+                       gchar **out_file_sha1, gint64 *out_id,
+                       gint64 *out_entry_count);
 
 /* algo 只接受 crc32 / md5 / sha1；platform 为 NULL 表示不限。
  * size > 0 时额外要求 size 吻合（size 为 NULL 的条目不受限制）；
