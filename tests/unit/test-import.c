@@ -1,9 +1,14 @@
 #include <glib.h>
 #include <glib/gstdio.h>
+#include <sqlite3.h>
 #include <string.h>
 
+#include "dat.h"
 #include "import.h"
+#include "rh-hash.h"
+#include "rh-records.h"
 #include "rh-test-main.h"
+#include "store.h"
 
 #define DATA_FILE RH_TEST_DATA_DIR "/platforms.conf"
 
@@ -295,6 +300,375 @@ static void test_wide_char_names(void)
     g_free(root);
 }
 
+/* ---------------------------------------------------------------------------
+ * 执行阶段
+ * ------------------------------------------------------------------------- */
+
+static void remove_tree(const gchar *path)
+{
+    if (g_file_test(path, G_FILE_TEST_IS_DIR)) {
+        GDir *dir = g_dir_open(path, 0, NULL);
+        if (dir != NULL) {
+            const gchar *name;
+            while ((name = g_dir_read_name(dir)) != NULL) {
+                gchar *child = g_build_filename(path, name, NULL);
+                remove_tree(child);
+                g_free(child);
+            }
+            g_dir_close(dir);
+        }
+        g_rmdir(path);
+    } else {
+        g_remove(path);
+    }
+}
+
+static void write_file(const gchar *dir, const gchar *rel, const gchar *content)
+{
+    gchar *path = g_build_filename(dir, rel, NULL);
+    gchar *parent = g_path_get_dirname(path);
+    g_mkdir_with_parents(parent, 0755);
+    g_assert_true(g_file_set_contents(path, content, -1, NULL));
+    g_free(parent);
+    g_free(path);
+}
+
+static RhStore *open_store_at(const gchar *root)
+{
+    gchar *db = g_build_filename(root, "romhamster.db", NULL);
+    RhErr err = RH_OK;
+    RhStore *store = store_open(db, &err);
+    g_assert_cmpint(err, ==, RH_OK);
+    g_assert_nonnull(store);
+    g_free(db);
+    return store;
+}
+
+static guint32 crc_of(const gchar *path)
+{
+    RhHashResult hash;
+    RhHashOptions options = { .flags = RH_HASH_CRC32 };
+    g_assert_cmpint(rh_hash_file(path, &options, &hash), ==, RH_OK);
+    g_assert_true(hash.has_crc32);
+    return hash.crc32;
+}
+
+static gchar *dat_text_for(guint32 crc, gint64 size)
+{
+    return g_strdup_printf(
+        "<?xml version=\"1.0\"?>\n<datafile>\n"
+        "<header><name>Test DAT</name><version>1</version></header>\n"
+        "<game name=\"gb\"><rom name=\"Tetris (World).gb\" size=\"%"
+        G_GINT64_FORMAT "\" crc=\"%08x\"/></game>\n</datafile>\n",
+        size, crc);
+}
+
+static void test_execute(void)
+{
+    RhPlatformRules *rules = load();
+    gchar *src = g_dir_make_tmp("romham-src-XXXXXX", NULL);
+    gchar *lib = g_dir_make_tmp("romham-lib-XXXXXX", NULL);
+
+    write_file(src, "gb/Tetris (World).gb", "abc");
+    write_file(src, "gb/covers/Tetris.png", "img");
+    write_file(src, "gb/translation.ips", "patch");
+
+    RhStore *store = open_store_at(lib);
+
+    gchar *rom_path = g_build_filename(src, "gb", "Tetris (World).gb", NULL);
+    guint32 crc = crc_of(rom_path);
+    g_free(rom_path);
+
+    gchar *dat_text = dat_text_for(crc, 3);
+    gchar *dat_path = g_build_filename(lib, "test.dat", NULL);
+    g_assert_true(g_file_set_contents(dat_path, dat_text, -1, NULL));
+    g_free(dat_text);
+
+    RhDatImportOptions dat_options = { .platform = "gb" };
+    RhDatImportStats dat_stats;
+    g_assert_cmpint(rh_dat_import(store, dat_path, &dat_options, &dat_stats),
+                    ==, RH_OK);
+    g_assert_cmpint(dat_stats.entry_count, ==, 1);
+
+    gint64 dat_id = 0;
+    gchar *stored_sha1 = NULL;
+    g_assert_cmpint(store_dat_lookup(store, "gb", dat_path, &stored_sha1,
+                                     &dat_id, NULL), ==, RH_OK);
+    g_assert_nonnull(stored_sha1);
+    g_free(stored_sha1);
+    g_assert_cmpint(dat_id, >, 0);
+
+    gint64 job_id = 0;
+    g_assert_cmpint(store_job_create(store, "import", 1, &job_id), ==, RH_OK);
+
+    RhErr err = RH_OK;
+    RhImportPlan *plan = rh_import_plan_scan(rules, src, &err);
+    g_assert_cmpint(err, ==, RH_OK);
+    g_assert_cmpuint(plan->entries->len, ==, 1);
+
+    RhImportExecOptions options = {0};
+    options.root = lib;
+    options.source_dir = src;
+    options.match_dat = TRUE;
+    options.job_id = job_id;
+    RhImportExecStats stats;
+    g_assert_cmpint(rh_import_execute(store, rules, plan, &options, &stats),
+                    ==, RH_OK);
+    g_assert_cmpuint(stats.imported, ==, 1);
+    g_assert_cmpuint(stats.skipped, ==, 0);
+    g_assert_cmpuint(stats.failed, ==, 0);
+
+    gchar *target = g_build_filename(lib, "gb", "gb", "Tetris (World).gb", NULL);
+    g_assert_true(g_file_test(target, G_FILE_TEST_IS_REGULAR));
+    gchar *content = NULL;
+    g_assert_true(g_file_get_contents(target, &content, NULL, NULL));
+    g_assert_cmpstr(content, ==, "abc");
+    g_free(content);
+    gchar *part = g_strdup_printf("%s.romham-part", target);
+    g_assert_false(g_file_test(part, G_FILE_TEST_EXISTS));
+    g_free(part);
+    g_free(target);
+
+    gchar *cover = g_build_filename(lib, "gb", "gb", "covers", "Tetris.png", NULL);
+    g_assert_true(g_file_test(cover, G_FILE_TEST_IS_REGULAR));
+    g_free(cover);
+    gchar *patch = g_build_filename(lib, "gb", "gb", "translation.ips", NULL);
+    g_assert_true(g_file_test(patch, G_FILE_TEST_IS_REGULAR));
+    g_free(patch);
+
+    RhGameFilter filter = {0};
+    GPtrArray *games = store_games_list(store, &filter, &err);
+    g_assert_cmpint(err, ==, RH_OK);
+    g_assert_cmpuint(games->len, ==, 1);
+    RhGame *game = g_ptr_array_index(games, 0);
+    g_assert_cmpstr(game->dir_path, ==, "gb/gb");
+    g_assert_cmpstr(game->dat_source, ==, "Test DAT");
+    g_assert_cmpuint(strlen(game->id), ==, 8);
+    gchar *game_id = g_strdup(game->id);
+
+    GPtrArray *roms = store_roms_for_game(store, game_id, &err);
+    g_assert_cmpuint(roms->len, ==, 1);
+    RhRomFile *rom = g_ptr_array_index(roms, 0);
+    gchar *crc_text = g_strdup_printf("%08x", crc);
+    g_assert_cmpstr(rom->crc32, ==, crc_text);
+    g_free(crc_text);
+    g_assert_cmpstr(rom->filename, ==, "Tetris (World).gb");
+    g_assert_true(rom->has_size);
+    g_assert_cmpint(rom->size, ==, 3);
+    g_assert_cmpint(rom->dat_id, ==, dat_id);
+    g_ptr_array_unref(roms);
+
+    GPtrArray *media = store_media_for_game(store, game_id, NULL, &err);
+    g_assert_cmpuint(media->len, ==, 2);
+    gboolean has_cover = FALSE;
+    gboolean has_patch = FALSE;
+    for (guint i = 0; i < media->len; i++) {
+        RhMediaFile *m = g_ptr_array_index(media, i);
+        if (g_strcmp0(m->kind, "covers") == 0)
+            has_cover = TRUE;
+        if (g_strcmp0(m->kind, "patcher") == 0)
+            has_patch = TRUE;
+    }
+    g_assert_true(has_cover);
+    g_assert_true(has_patch);
+    g_ptr_array_unref(media);
+
+    /* job_items 与游戏记录同事务写入 */
+    gchar *db_path = g_build_filename(lib, "romhamster.db", NULL);
+    sqlite3 *db = NULL;
+    g_assert_cmpint(sqlite3_open(db_path, &db), ==, SQLITE_OK);
+    sqlite3_stmt *stmt = NULL;
+    g_assert_cmpint(sqlite3_prepare_v2(db,
+        "SELECT state, target_id FROM job_items WHERE job_id = ?;", -1, &stmt, NULL),
+        ==, SQLITE_OK);
+    sqlite3_bind_int64(stmt, 1, job_id);
+    g_assert_cmpint(sqlite3_step(stmt), ==, SQLITE_ROW);
+    g_assert_cmpstr((const char *)sqlite3_column_text(stmt, 0), ==, "imported");
+    g_assert_cmpstr((const char *)sqlite3_column_text(stmt, 1), ==, game_id);
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+    g_free(db_path);
+
+    g_ptr_array_unref(games);
+    g_free(game_id);
+    rh_import_plan_free(plan);
+    store_close(store);
+    rh_platform_rules_free(rules);
+    g_free(dat_path);
+    remove_tree(src);
+    remove_tree(lib);
+    g_free(src);
+    g_free(lib);
+}
+
+static void test_execute_conflict(void)
+{
+    RhPlatformRules *rules = load();
+    gchar *src = g_dir_make_tmp("romham-src-XXXXXX", NULL);
+    gchar *lib = g_dir_make_tmp("romham-lib-XXXXXX", NULL);
+    write_file(src, "gb/Tetris (World).gb", "new");
+
+    /* 目标已存在：整条跳过，原文件一个字节都不改。 */
+    write_file(lib, "gb/gb/Tetris (World).gb", "old");
+
+    RhStore *store = open_store_at(lib);
+    RhErr err = RH_OK;
+    RhImportPlan *plan = rh_import_plan_scan(rules, src, &err);
+    g_assert_cmpint(err, ==, RH_OK);
+    g_assert_cmpuint(plan->entries->len, ==, 1);
+
+    RhImportExecOptions options = {0};
+    options.root = lib;
+    options.source_dir = src;
+    RhImportExecStats stats;
+    g_assert_cmpint(rh_import_execute(store, rules, plan, &options, &stats),
+                    ==, RH_OK);
+    g_assert_cmpuint(stats.skipped, ==, 1);
+    g_assert_cmpuint(stats.imported, ==, 0);
+
+    gchar *target = g_build_filename(lib, "gb", "gb", "Tetris (World).gb", NULL);
+    gchar *content = NULL;
+    g_assert_true(g_file_get_contents(target, &content, NULL, NULL));
+    g_assert_cmpstr(content, ==, "old");
+    g_free(content);
+    gchar *part = g_strdup_printf("%s.romham-part", target);
+    g_assert_false(g_file_test(part, G_FILE_TEST_EXISTS));
+    g_free(part);
+    g_free(target);
+
+    RhGameFilter filter = {0};
+    GPtrArray *games = store_games_list(store, &filter, &err);
+    g_assert_cmpuint(games->len, ==, 0);
+    g_ptr_array_unref(games);
+
+    rh_import_plan_free(plan);
+    store_close(store);
+    rh_platform_rules_free(rules);
+    remove_tree(src);
+    remove_tree(lib);
+    g_free(src);
+    g_free(lib);
+}
+
+static void test_execute_rollback(void)
+{
+    RhPlatformRules *rules = load();
+    gchar *src = g_dir_make_tmp("romham-src-XXXXXX", NULL);
+    gchar *lib = g_dir_make_tmp("romham-lib-XXXXXX", NULL);
+    write_file(src, "gb/Tetris (World).gb", "abc");
+
+    RhStore *store = open_store_at(lib);
+
+    /* 先占住 gb/gb 这个 dir_path，让插入必然失败。 */
+    RhGame *existing = rh_game_new();
+    existing->id = g_strdup("aaaa0001");
+    existing->platform = g_strdup("gb");
+    existing->name = g_strdup("Existing");
+    existing->game_main_name = g_strdup("Existing");
+    existing->dir_path = g_strdup("gb/gb");
+    g_assert_cmpint(store_game_insert(store, existing, NULL, NULL, NULL), ==, RH_OK);
+    rh_game_free(existing);
+
+    RhErr err = RH_OK;
+    RhImportPlan *plan = rh_import_plan_scan(rules, src, &err);
+    g_assert_cmpint(err, ==, RH_OK);
+
+    RhImportExecOptions options = {0};
+    options.root = lib;
+    options.source_dir = src;
+    RhImportExecStats stats;
+    /* 这条用例故意触发 UNIQUE 约束；store 会按约定记 warning，
+     * 测试期间关掉 fatal-warning，避免把预期失败当崩溃。 */
+    GLogLevelFlags fatal = g_log_set_always_fatal(0);
+    RhErr exec_err = rh_import_execute(store, rules, plan, &options, &stats);
+    g_log_set_always_fatal(fatal);
+    g_assert_cmpint(exec_err, ==, RH_OK);
+    g_assert_cmpuint(stats.failed, ==, 1);
+    g_assert_cmpuint(stats.imported, ==, 0);
+
+    /* 复制出来的文件与新建目录都已回滚 */
+    gchar *target = g_build_filename(lib, "gb", "gb", "Tetris (World).gb", NULL);
+    g_assert_false(g_file_test(target, G_FILE_TEST_EXISTS));
+    g_free(target);
+    gchar *gb_dir = g_build_filename(lib, "gb", NULL);
+    g_assert_false(g_file_test(gb_dir, G_FILE_TEST_EXISTS));
+    g_free(gb_dir);
+
+    RhGameFilter filter = {0};
+    GPtrArray *games = store_games_list(store, &filter, &err);
+    g_assert_cmpuint(games->len, ==, 1);
+    g_ptr_array_unref(games);
+
+    rh_import_plan_free(plan);
+    store_close(store);
+    rh_platform_rules_free(rules);
+    remove_tree(src);
+    remove_tree(lib);
+    g_free(src);
+    g_free(lib);
+}
+
+typedef struct {
+    int calls;
+} CancelState;
+
+static gboolean cancel_after_first(gpointer data)
+{
+    CancelState *state = data;
+    state->calls++;
+    return state->calls > 1;
+}
+
+static void test_execute_cancel(void)
+{
+    RhPlatformRules *rules = load();
+    gchar *src = g_dir_make_tmp("romham-src-XXXXXX", NULL);
+    gchar *lib = g_dir_make_tmp("romham-lib-XXXXXX", NULL);
+    write_file(src, "gb/Tetris (World).gb", "abc");
+    write_file(src, "snes/Super Metroid.sfc", "xyz");
+
+    RhStore *store = open_store_at(lib);
+    RhErr err = RH_OK;
+    RhImportPlan *plan = rh_import_plan_scan(rules, src, &err);
+    g_assert_cmpint(err, ==, RH_OK);
+    g_assert_cmpuint(plan->entries->len, ==, 2);
+
+    CancelState cancel = {0};
+    RhImportExecOptions options = {0};
+    options.root = lib;
+    options.source_dir = src;
+    options.cancel = cancel_after_first;
+    options.cancel_data = &cancel;
+    RhImportExecStats stats;
+    g_assert_cmpint(rh_import_execute(store, rules, plan, &options, &stats),
+                    ==, RH_ERR_CANCELLED);
+    g_assert_true(stats.cancelled);
+    g_assert_cmpuint(stats.imported, ==, 1);
+    g_assert_cmpuint(stats.failed, ==, 0);
+
+    /* 第一个条目已提交，第二个没动 */
+    RhGameFilter filter = {0};
+    GPtrArray *games = store_games_list(store, &filter, &err);
+    g_assert_cmpuint(games->len, ==, 1);
+    g_ptr_array_unref(games);
+
+    gchar *gb_target = g_build_filename(lib, "gb", "gb", "Tetris (World).gb", NULL);
+    gchar *snes_target = g_build_filename(lib, "snes", "snes", "Super Metroid.sfc", NULL);
+    int present = (g_file_test(gb_target, G_FILE_TEST_EXISTS) ? 1 : 0)
+                + (g_file_test(snes_target, G_FILE_TEST_EXISTS) ? 1 : 0);
+    g_assert_cmpint(present, ==, 1);
+    g_free(gb_target);
+    g_free(snes_target);
+
+    rh_import_plan_free(plan);
+    store_close(store);
+    rh_platform_rules_free(rules);
+    remove_tree(src);
+    remove_tree(lib);
+    g_free(src);
+    g_free(lib);
+}
+
 int main(int argc, char **argv)
 {
     rh_test_init(&argc, &argv);
@@ -305,5 +679,9 @@ int main(int argc, char **argv)
     g_test_add_func("/import/invalid-filename", test_invalid_filename);
 #endif
     g_test_add_func("/import/wide-char-names", test_wide_char_names);
+    g_test_add_func("/import/execute", test_execute);
+    g_test_add_func("/import/execute-conflict", test_execute_conflict);
+    g_test_add_func("/import/execute-rollback", test_execute_rollback);
+    g_test_add_func("/import/execute-cancel", test_execute_cancel);
     return g_test_run();
 }

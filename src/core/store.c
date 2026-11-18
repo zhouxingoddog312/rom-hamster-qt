@@ -653,6 +653,30 @@ RhErr store_game_delete(RhStore *store, const char *id)
  * 读取
  * ========================================================================= */
 
+gboolean store_game_id_exists(RhStore *store, const char *id, RhErr *out_err)
+{
+    if (out_err != NULL)
+        *out_err = RH_OK;
+    if (store == NULL || id == NULL) {
+        if (out_err != NULL)
+            *out_err = RH_ERR_INVALID;
+        return FALSE;
+    }
+
+    sqlite3_stmt *stmt = NULL;
+    RhErr err = prepare(store->db, "SELECT 1 FROM games WHERE id = ? LIMIT 1;",
+                        &stmt);
+    if (err != RH_OK) {
+        if (out_err != NULL)
+            *out_err = err;
+        return FALSE;
+    }
+    bind_text(stmt, 1, id);
+    gboolean exists = sqlite3_step(stmt) == SQLITE_ROW;
+    sqlite3_finalize(stmt);
+    return exists;
+}
+
 #define GAME_COLUMNS                                                        \
     "id, platform, name, game_main_name, dir_path, developer, publisher,"   \
     " year, genre, players, rating, region, description, is_multi_disc,"   \
@@ -1076,6 +1100,43 @@ RhErr store_job_finish(RhStore *store, gint64 job_id, const char *error)
     bind_text(stmt, 1, error == NULL ? "done" : "failed");
     bind_text(stmt, 2, error);
     sqlite3_bind_int64(stmt, 3, job_id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE ? RH_OK : RH_ERR_DB;
+}
+
+RhErr store_job_item_set(RhStore *store, gint64 job_id, int seq,
+                         const char *src, const char *action,
+                         const char *platform, const char *target_id,
+                         const char *state, const char *message)
+{
+    RhErr err = ensure_writable(store);
+    if (err != RH_OK)
+        return err;
+    if (src == NULL || state == NULL)
+        return RH_ERR_INVALID;
+
+    sqlite3_stmt *stmt = NULL;
+    err = prepare(store->db,
+                  "INSERT INTO job_items (job_id, seq, src, action, platform,"
+                  " target_id, state, message)"
+                  " VALUES (?,?,?,?,?,?,?,?)"
+                  " ON CONFLICT(job_id, seq) DO UPDATE SET"
+                  "  src = excluded.src, action = excluded.action,"
+                  "  platform = excluded.platform, target_id = excluded.target_id,"
+                  "  state = excluded.state, message = excluded.message;",
+                  &stmt);
+    if (err != RH_OK)
+        return err;
+
+    sqlite3_bind_int64(stmt, 1, job_id);
+    sqlite3_bind_int(stmt, 2, seq);
+    bind_text(stmt, 3, src);
+    bind_text(stmt, 4, action);
+    bind_text(stmt, 5, platform);
+    bind_text(stmt, 6, target_id);
+    bind_text(stmt, 7, state);
+    bind_text(stmt, 8, message);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE ? RH_OK : RH_ERR_DB;

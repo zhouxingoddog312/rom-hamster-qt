@@ -16,6 +16,7 @@
 #include "rh-err.h"
 #include "rh-fname.h"
 #include "platform.h"
+#include "store.h"
 
 typedef struct {
     gchar  *kind;          /* 媒体类型（RhMediaKind） */
@@ -52,5 +53,46 @@ void rh_import_entry_free(RhImportPlanEntry *entry);
 RhImportPlan *rh_import_plan_scan(const RhPlatformRules *rules, const char *source_dir,
                                   RhErr *out_err);
 void rh_import_plan_free(RhImportPlan *plan);
+
+/* ---------------------------------------------------------------------------
+ * 执行阶段（ARCHITECTURE.md §6.2）：零交互，复制 + 原子改名 + 单条事务。
+ * ------------------------------------------------------------------------- */
+
+typedef struct {
+    guint    imported;
+    guint    skipped;      /* 平台未定、目标已存在等，不写库 */
+    guint    failed;       /* 复制或写库失败，已回滚 */
+    gboolean cancelled;
+} RhImportExecStats;
+
+typedef gboolean (*RhImportCancelFn)(gpointer user_data);
+typedef void (*RhImportExecProgressFn)(guint done, guint total,
+                                       const gchar *name, gpointer user_data);
+
+typedef struct {
+    const gchar *root;        /* 库根目录，UTF-8 */
+    const gchar *source_dir;  /* 预扫描时的来源根目录，UTF-8 */
+    gboolean     match_dat;   /* TRUE：复制时算 CRC32 并查已导入的 DAT */
+    gint64       job_id;      /* >0：条目状态与游戏记录同事务写 job_items */
+    RhImportCancelFn cancel;  /* 每个条目开始时检查，返回 TRUE 取消 */
+    gpointer     cancel_data;
+    RhImportExecProgressFn progress; /* 每处理完一个条目调用 */
+    gpointer     user_data;
+} RhImportExecOptions;
+
+/*
+ * 逐条执行计划。每个条目：
+ *   1. 复制到目标目录的临时名，成功后原子改名为最终名；
+ *   2. 单个事务内写 games/roms/media（含 patch）与 job_items 状态；
+ *   3. 任一步失败：回滚事务、删除本次复制的文件与空目录，记为 failed，
+ *      继续处理后续条目（不整体中止）。
+ *
+ * 取消只发生在条目边界：已提交的条目保留，当前条目回滚，返回
+ * RH_ERR_CANCELLED 且 stats.cancelled 为 TRUE。
+ */
+RhErr rh_import_execute(RhStore *store, const RhPlatformRules *rules,
+                        const RhImportPlan *plan,
+                        const RhImportExecOptions *options,
+                        RhImportExecStats *out_stats);
 
 #endif /* RH_IMPORT_H */

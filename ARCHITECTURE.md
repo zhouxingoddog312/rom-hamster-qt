@@ -4,6 +4,7 @@
 > 本版修订：
 > 1. 吸收 DAT 生态调研结论：匹配顺序改为 `sha1 → md5 → crc32`（先按 size 缩小范围，无 size 条目豁免）；Redump `<disk>` 以 `entry_type='disk'` 入库（只取 name/sha1/md5），`<sample>` 只计数不入库；`dats.file_sha1` 记录 DAT 文件自身哈希（解析时顺带计算，不额外读盘）；重导时内容未变直接跳过，`force` 可强制重建；schema 升到 v4（`entry_type`、`file_sha1`、`(size, crc32)` 复合索引），新增 v3→v4 迁移。
 > 2. §3.5、§5、§7.5、§15.2 的匹配顺序与上述保持一致（刮削查询键同步为强到弱）。
+> 3. §14 M2 增加 `import` 执行阶段：临时名 → 原子改名 → 单条事务（游戏 + ROM/媒体/补丁 + `job_items` 同事务），失败回滚已复制文件，取消只发生在条目边界；DAT 匹配在复制流中顺带算 CRC32，唯一命中才回填 `dat_id`/`dat_source`。m3u 生成与碟片编号识别仍未实现。
 >
 > v0.7（2026-11-18）修订：
 > 1. 新增 §3.3/§3.4 的 v3 schema：`dat_entries` 改为代理主键 + `(dat_id, game_name, rom_name)` 唯一索引（rom 名只在 game 内唯一），补 `status/cloneof/romof/merge_name`；`dats` 增加 `encoding/skipped`；`roms` 增加 `dat_id`（匹配来源可追溯）。
@@ -1357,10 +1358,12 @@ ROM_ROOT = /home/zhoux/roms
 空文件、已知向量、超过缓冲区的大文件、中文路径、批量、取消、错误路径）与
 `dat`（Logiqx 流式导入 + 哈希匹配，9 用例：正常样本、大文件分块进度、CRC 唯一命中
 与多候选二义、SHA1 兜底、缺字段/畸形 XML、取消、GB18030 与非法字节、Redump
-disk 与 sample、内容未变跳过/force/变更重导）。`import` 预扫描与 `store` 已接入
-原始字节，schema 升到 v4（v1→v2→v3→v4 迁移均有用例）。四组构建
-（Linux/Windows × CLI/GUI）通过；`ctest` Linux 17/17（81 用例）、Windows 15/15
-（77 用例）。下一步：`import` 执行阶段。
+disk 与 sample、内容未变跳过/force/变更重导）、`import` 执行阶段（临时名 → 原子
+改名 → 单条事务，4 用例：正常导入并回填 DAT 来源、目标冲突跳过、写库失败回滚、
+取消后已提交条目保留）。`import` 预扫描与 `store` 已接入原始字节，schema 升到 v4
+（v1→v2→v3→v4 迁移均有用例）。四组构建（Linux/Windows × CLI/GUI）通过；`ctest`
+Linux 17/17（85 用例）、Windows 15/15（81 用例）。执行阶段尚未做：m3u 生成、
+碟片编号识别、补丁类型判定。下一步：M3。
 
 ### 14.1 M4 性能验收（量化）
 

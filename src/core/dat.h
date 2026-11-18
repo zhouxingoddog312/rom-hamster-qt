@@ -13,7 +13,7 @@
  *     字节按 %NN 转义保留（不静默丢弃）。
  *   - 名字不作唯一键：rom 名只在 game 内唯一，MAME 的 parent/clone
  *     结构照原样保留（cloneof/romof/merge），匹配只认校验值。
- *   - 匹配：crc32 → sha1 → md5，返回全部候选；同哈希多候选即二义，
+ *   - 匹配：sha1 → md5 → crc32，返回全部候选；同哈希多候选即二义，
  *     由调用方决策，绝不替调用方挑一个。
  */
 #ifndef RH_DAT_H

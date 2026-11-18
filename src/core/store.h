@@ -57,6 +57,7 @@ RhErr store_game_insert(RhStore *store, const RhGame *game,
 
 RhErr store_game_update(RhStore *store, const RhGame *game);
 RhErr store_game_delete(RhStore *store, const char *id);
+gboolean store_game_id_exists(RhStore *store, const char *id, RhErr *out_err);
 
 RhGame    *store_game_get(RhStore *store, const char *id, RhErr *out_err);
 GPtrArray *store_roms_for_game(RhStore *store, const char *id, RhErr *out_err);
@@ -73,6 +74,11 @@ gint64     store_games_count(RhStore *store, const RhGameFilter *filter, RhErr *
 RhErr store_job_create(RhStore *store, const char *kind, int total, gint64 *out_id);
 RhErr store_job_progress(RhStore *store, gint64 job_id, int done);
 RhErr store_job_finish(RhStore *store, gint64 job_id, const char *error);
+/* 写入/更新一个作业条目；导入执行阶段把状态与游戏记录放在同一事务里。 */
+RhErr store_job_item_set(RhStore *store, gint64 job_id, int seq,
+                         const char *src, const char *action,
+                         const char *platform, const char *target_id,
+                         const char *state, const char *message);
 
 /* ---------------------------------------------------------------------------
  * DAT：XML 解析归 dat.c，这里只落库与按哈希查（§5.1 边界表）。

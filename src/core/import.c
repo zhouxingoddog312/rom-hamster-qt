@@ -1,8 +1,14 @@
 #include "import.h"
 
+#include <errno.h>
+#include <stdio.h>
 #include <string.h>
+#include <zlib.h>
+
+#include <glib/gstdio.h>
 
 #include "classify.h"
+#include "dat.h"
 #include "rh-records.h"
 #include "rh-str.h"
 
@@ -352,4 +358,474 @@ RhImportPlan *rh_import_plan_scan(const RhPlatformRules *rules, const char *sour
 
     g_ptr_array_free(names, TRUE);
     return plan;
+}
+
+/* ===========================================================================
+ * 执行阶段
+ * ========================================================================= */
+
+typedef struct {
+    GPtrArray *files;   /* gchar*：本次落盘的最终路径 */
+    GPtrArray *dirs;    /* gchar*：本次真正创建的目录，按创建顺序 */
+} EntryWrites;
+
+static void entry_writes_init(EntryWrites *writes)
+{
+    writes->files = g_ptr_array_new_with_free_func(g_free);
+    writes->dirs = g_ptr_array_new_with_free_func(g_free);
+}
+
+/* 释放列表；rollback 为 TRUE 时先删文件，再从深到浅删本次创建的目录。 */
+static void entry_writes_free(EntryWrites *writes, gboolean rollback)
+{
+    if (writes->files != NULL) {
+        if (rollback) {
+            for (gint i = (gint)writes->files->len - 1; i >= 0; i--)
+                g_remove(g_ptr_array_index(writes->files, i));
+        }
+        g_ptr_array_free(writes->files, TRUE);
+        writes->files = NULL;
+    }
+    if (writes->dirs != NULL) {
+        if (rollback) {
+            for (gint i = (gint)writes->dirs->len - 1; i >= 0; i--)
+                g_rmdir(g_ptr_array_index(writes->dirs, i));
+        }
+        g_ptr_array_free(writes->dirs, TRUE);
+        writes->dirs = NULL;
+    }
+}
+
+/* 只创建缺失的层级，并记录本次真正创建的目录，回滚时不误删已有目录。 */
+static void ensure_dir(const gchar *dir, EntryWrites *writes)
+{
+    if (g_file_test(dir, G_FILE_TEST_IS_DIR))
+        return;
+    gchar *parent = g_path_get_dirname(dir);
+    if (g_strcmp0(parent, dir) != 0)
+        ensure_dir(parent, writes);
+    g_free(parent);
+    if (g_mkdir(dir, 0755) == 0)
+        g_ptr_array_add(writes->dirs, g_strdup(dir));
+}
+
+static gchar *native_from_raw(const gchar *dir, GBytes *raw)
+{
+    if (raw == NULL)
+        return g_strdup(dir);
+    gsize len = 0;
+    const gchar *data = g_bytes_get_data(raw, &len);
+    if (len == 0)
+        return g_strdup(dir);
+
+    RhFName *name = rh_fname_from_bytes(data, (gssize)len);
+    if (name == NULL)
+        return NULL;
+    gchar *native = rh_fname_native_name(name);
+    gchar *full = native != NULL ? g_build_filename(dir, native, NULL) : NULL;
+    g_free(native);
+    rh_fname_free(name);
+    return full;
+}
+
+static gchar *source_path(const gchar *source_dir,
+                          const RhImportPlanEntry *entry, GBytes *rel_raw)
+{
+    gchar *base = native_from_raw(source_dir, entry->source_subdir_raw);
+    if (base == NULL)
+        return NULL;
+    gchar *full = native_from_raw(base, rel_raw);
+    g_free(base);
+    return full;
+}
+
+static gchar *target_path(const RhImportExecOptions *options,
+                          const RhImportPlanEntry *entry, const gchar *filename)
+{
+    return g_build_filename(options->root, entry->game_dir, filename, NULL);
+}
+
+/*
+ * 复制到同目录临时名，成功后原子改名。CRC32 在复制过程中顺带算出，
+ * 不额外读盘。src 为平台原生路径，dst 为 UTF-8。
+ */
+static RhErr copy_one(const gchar *src, const gchar *dst,
+                      guint32 *out_crc, gint64 *out_size, gchar **out_error)
+{
+    FILE *in = g_fopen(src, "rb");
+    if (in == NULL) {
+        *out_error = g_strdup_printf("无法读取来源：%s", g_strerror(errno));
+        return RH_ERR_IO;
+    }
+
+    gchar *tmp = g_strdup_printf("%s.romham-part", dst);
+    FILE *out = g_fopen(tmp, "wb");
+    if (out == NULL) {
+        *out_error = g_strdup_printf("无法创建目标：%s", g_strerror(errno));
+        fclose(in);
+        g_free(tmp);
+        return RH_ERR_IO;
+    }
+
+    guchar buffer[64 * 1024];
+    guint32 crc = (guint32)crc32(0L, Z_NULL, 0);
+    gint64 total = 0;
+    gboolean ok = TRUE;
+    for (;;) {
+        size_t n = fread(buffer, 1, sizeof buffer, in);
+        if (n > 0) {
+            crc = (guint32)crc32(crc, buffer, (uInt)n);
+            if (fwrite(buffer, 1, n, out) != n) {
+                ok = FALSE;
+                break;
+            }
+            total += (gint64)n;
+        }
+        if (n < sizeof buffer) {
+            if (ferror(in))
+                ok = FALSE;
+            break;
+        }
+    }
+    if (fclose(out) != 0)
+        ok = FALSE;
+    if (fclose(in) != 0)
+        ok = FALSE;
+    if (ok && g_rename(tmp, dst) != 0) {
+        *out_error = g_strdup_printf("改名失败：%s", g_strerror(errno));
+        ok = FALSE;
+    }
+    if (!ok) {
+        g_remove(tmp);
+        if (*out_error == NULL)
+            *out_error = g_strdup("写入目标文件失败");
+    }
+    g_free(tmp);
+    if (!ok)
+        return RH_ERR_IO;
+
+    *out_crc = crc;
+    *out_size = total;
+    return RH_OK;
+}
+
+static gchar *new_game_id(RhStore *store)
+{
+    for (int attempt = 0; attempt < 64; attempt++) {
+        gchar *id = g_strdup_printf("%08x", g_random_int());
+        RhErr err = RH_OK;
+        if (!store_game_id_exists(store, id, &err))
+            return err == RH_OK ? id : NULL;
+        g_free(id);
+        if (err != RH_OK)
+            return NULL;
+    }
+    return NULL;
+}
+
+static gboolean name_is_archive(const RhPlatformRules *rules, const gchar *filename)
+{
+    RhClassifyResult *result = rh_classify_file(rules, filename);
+    gboolean archive = result != NULL && result->kind == RH_CLASSIFY_ARCHIVE;
+    rh_classify_result_free(result);
+    return archive;
+}
+
+/* CRC32 命中唯一 DAT 条目时回填来源；二义/未命中都不挑。 */
+static void match_rom(RhStore *store, const RhImportPlanEntry *entry,
+                      RhRomFile *rom, RhGame *game, guint32 crc, gint64 size)
+{
+    RhHashResult hash;
+    memset(&hash, 0, sizeof hash);
+    hash.size = (guint64)size;
+    hash.has_crc32 = TRUE;
+    hash.crc32 = crc;
+
+    GPtrArray *matches = NULL;
+    RhErr err = RH_OK;
+    RhDatMatchKind kind = rh_dat_match(store, &hash, entry->platform,
+                                       &matches, &err);
+    if (kind == RH_DAT_MATCH_UNIQUE && matches != NULL && matches->len == 1) {
+        RhDatMatch *match = g_ptr_array_index(matches, 0);
+        rom->dat_id = match->dat_id;
+        if (match->entry->sha1 != NULL)
+            rom->sha1 = g_strdup(match->entry->sha1);
+        if (match->entry->md5 != NULL)
+            rom->md5 = g_strdup(match->entry->md5);
+        if (game->dat_source == NULL)
+            game->dat_source = g_strdup(match->dat_name);
+    }
+    if (matches != NULL)
+        g_ptr_array_unref(matches);
+}
+
+static void remember_file(EntryWrites *writes, const gchar *path)
+{
+    g_ptr_array_add(writes->files, g_strdup(path));
+}
+
+static void mark_job_item(RhStore *store, const RhImportExecOptions *options,
+                          guint seq, const RhImportPlanEntry *entry,
+                          const gchar *state, const gchar *target_id,
+                          const gchar *message)
+{
+    if (options->job_id <= 0)
+        return;
+    store_job_item_set(store, options->job_id, (int)seq,
+                       entry->source_subdir != NULL ? entry->source_subdir : "",
+                       "import", entry->platform, target_id, state, message);
+}
+
+typedef enum {
+    ENTRY_IMPORTED,
+    ENTRY_SKIPPED,
+    ENTRY_FAILED
+} EntryOutcome;
+
+static EntryOutcome execute_entry(RhStore *store, const RhPlatformRules *rules,
+                                  const RhImportPlanEntry *entry,
+                                  const RhImportExecOptions *options,
+                                  guint seq, gchar **out_message)
+{
+    if (entry->platform == NULL || entry->game_dir == NULL) {
+        *out_message = g_strdup("平台未确定");
+        return ENTRY_SKIPPED;
+    }
+    if (entry->roms->len == 0) {
+        *out_message = g_strdup("没有可导入的 ROM");
+        return ENTRY_SKIPPED;
+    }
+
+    /* 先查冲突：任一目标文件已存在就整条跳过，绝不覆盖。 */
+    for (guint i = 0; i < entry->roms->len; i++) {
+        gchar *dst = target_path(options, entry, g_ptr_array_index(entry->roms, i));
+        gboolean exists = g_file_test(dst, G_FILE_TEST_EXISTS);
+        g_free(dst);
+        if (exists) {
+            *out_message = g_strdup("目标文件已存在");
+            return ENTRY_SKIPPED;
+        }
+    }
+    for (guint i = 0; i < entry->media->len; i++) {
+        RhImportMediaFile *m = g_ptr_array_index(entry->media, i);
+        gchar *dst = target_path(options, entry, m->filename);
+        gboolean exists = g_file_test(dst, G_FILE_TEST_EXISTS);
+        g_free(dst);
+        if (exists) {
+            *out_message = g_strdup("目标媒体文件已存在");
+            return ENTRY_SKIPPED;
+        }
+    }
+    for (guint i = 0; i < entry->patches->len; i++) {
+        gchar *dst = target_path(options, entry, g_ptr_array_index(entry->patches, i));
+        gboolean exists = g_file_test(dst, G_FILE_TEST_EXISTS);
+        g_free(dst);
+        if (exists) {
+            *out_message = g_strdup("目标补丁文件已存在");
+            return ENTRY_SKIPPED;
+        }
+    }
+
+    RhGame *game = rh_game_new();
+    game->id = new_game_id(store);
+    if (game->id == NULL) {
+        rh_game_free(game);
+        *out_message = g_strdup("无法生成游戏 ID");
+        return ENTRY_FAILED;
+    }
+    game->platform = g_strdup(entry->platform);
+    game->name = g_strdup(entry->name);
+    game->game_main_name = g_strdup(entry->name);
+    game->dir_path = g_strdup(entry->game_dir);
+
+    GPtrArray *roms = g_ptr_array_new_with_free_func(
+        (GDestroyNotify)rh_rom_file_free);
+    GPtrArray *media = g_ptr_array_new_with_free_func(
+        (GDestroyNotify)rh_media_file_free);
+    EntryWrites writes;
+    entry_writes_init(&writes);
+
+    gchar *game_dir = g_build_filename(options->root, entry->game_dir, NULL);
+    ensure_dir(game_dir, &writes);
+    g_free(game_dir);
+
+    RhErr err = RH_OK;
+    gchar *error = NULL;
+
+    for (guint i = 0; i < entry->roms->len && err == RH_OK; i++) {
+        const gchar *display = g_ptr_array_index(entry->roms, i);
+        GBytes *raw = g_ptr_array_index(entry->roms_raw, i);
+        gchar *src = source_path(options->source_dir, entry, raw);
+        if (src == NULL) {
+            err = RH_ERR_INVALID;
+            error = g_strdup("来源文件名无法在当前平台定位");
+            break;
+        }
+        gchar *dst = target_path(options, entry, display);
+        gchar *parent = g_path_get_dirname(dst);
+        ensure_dir(parent, &writes);
+        g_free(parent);
+
+        guint32 crc = 0;
+        gint64 size = 0;
+        err = copy_one(src, dst, &crc, &size, &error);
+        g_free(src);
+        if (err != RH_OK) {
+            g_free(dst);
+            break;
+        }
+        remember_file(&writes, dst);
+
+        RhRomFile *rom = rh_rom_file_new();
+        rom->filename = g_strdup(display);
+        rom->filename_raw = g_bytes_ref(raw);
+        rom->has_size = TRUE;
+        rom->size = size;
+        rom->crc32 = g_strdup_printf("%08x", crc);
+        rom->sort = (gint)i;
+        if (options->match_dat && !name_is_archive(rules, display))
+            match_rom(store, entry, rom, game, crc, size);
+        g_ptr_array_add(roms, rom);
+        g_free(dst);
+    }
+
+    for (guint i = 0; i < entry->media->len && err == RH_OK; i++) {
+        RhImportMediaFile *m = g_ptr_array_index(entry->media, i);
+        gchar *src = source_path(options->source_dir, entry, m->filename_raw);
+        if (src == NULL) {
+            err = RH_ERR_INVALID;
+            error = g_strdup("来源媒体文件名无法定位");
+            break;
+        }
+        gchar *dst = target_path(options, entry, m->filename);
+        gchar *parent = g_path_get_dirname(dst);
+        ensure_dir(parent, &writes);
+        g_free(parent);
+
+        guint32 crc = 0;
+        gint64 size = 0;
+        err = copy_one(src, dst, &crc, &size, &error);
+        g_free(src);
+        if (err == RH_OK) {
+            remember_file(&writes, dst);
+            RhMediaFile *media_file = rh_media_file_new();
+            media_file->kind = g_strdup(m->kind);
+            media_file->filename = g_strdup(m->filename);
+            media_file->filename_raw = m->filename_raw != NULL
+                ? g_bytes_ref(m->filename_raw) : NULL;
+            media_file->has_size = TRUE;
+            media_file->size = size;
+            media_file->sort = (gint)i;
+            g_ptr_array_add(media, media_file);
+        }
+        g_free(dst);
+    }
+
+    for (guint i = 0; i < entry->patches->len && err == RH_OK; i++) {
+        const gchar *display = g_ptr_array_index(entry->patches, i);
+        GBytes *raw = g_ptr_array_index(entry->patches_raw, i);
+        gchar *src = source_path(options->source_dir, entry, raw);
+        if (src == NULL) {
+            err = RH_ERR_INVALID;
+            error = g_strdup("来源补丁文件名无法定位");
+            break;
+        }
+        gchar *dst = target_path(options, entry, display);
+        guint32 crc = 0;
+        gint64 size = 0;
+        err = copy_one(src, dst, &crc, &size, &error);
+        g_free(src);
+        if (err == RH_OK) {
+            remember_file(&writes, dst);
+            RhMediaFile *patch = rh_media_file_new();
+            patch->kind = g_strdup("patcher");
+            patch->filename = g_strdup(display);
+            patch->filename_raw = raw != NULL ? g_bytes_ref(raw) : NULL;
+            patch->has_size = TRUE;
+            patch->size = size;
+            patch->sort = (gint)i;
+            g_ptr_array_add(media, patch);
+        }
+        g_free(dst);
+    }
+
+    if (err == RH_OK) {
+        err = store_begin(store);
+        if (err == RH_OK)
+            err = store_game_insert(store, game, roms, media, NULL);
+        if (err == RH_OK && options->job_id > 0)
+            err = store_job_item_set(store, options->job_id, (int)seq,
+                                     entry->source_subdir != NULL
+                                         ? entry->source_subdir : "",
+                                     "import", entry->platform, game->id,
+                                     "imported", NULL);
+        if (err == RH_OK)
+            err = store_commit(store);
+        else
+            store_rollback(store);
+    }
+
+    if (err != RH_OK) {
+        entry_writes_free(&writes, TRUE);
+        if (error == NULL)
+            error = g_strdup(rh_err_str(err));
+        *out_message = error;
+        g_ptr_array_free(roms, TRUE);
+        g_ptr_array_free(media, TRUE);
+        rh_game_free(game);
+        return ENTRY_FAILED;
+    }
+
+    entry_writes_free(&writes, FALSE);
+    g_ptr_array_free(roms, TRUE);
+    g_ptr_array_free(media, TRUE);
+    rh_game_free(game);
+    *out_message = NULL;
+    return ENTRY_IMPORTED;
+}
+
+RhErr rh_import_execute(RhStore *store, const RhPlatformRules *rules,
+                        const RhImportPlan *plan,
+                        const RhImportExecOptions *options,
+                        RhImportExecStats *out_stats)
+{
+    if (store == NULL || rules == NULL || plan == NULL || options == NULL ||
+        options->root == NULL || options->source_dir == NULL)
+        return RH_ERR_INVALID;
+
+    RhImportExecStats stats = {0};
+    RhErr result = RH_OK;
+    guint total = plan->entries->len;
+
+    for (guint i = 0; i < total; i++) {
+        if (options->cancel != NULL && options->cancel(options->cancel_data)) {
+            stats.cancelled = TRUE;
+            result = RH_ERR_CANCELLED;
+            break;
+        }
+
+        RhImportPlanEntry *entry = g_ptr_array_index(plan->entries, i);
+        gchar *message = NULL;
+        EntryOutcome outcome = execute_entry(store, rules, entry, options, i,
+                                             &message);
+        if (outcome == ENTRY_IMPORTED) {
+            stats.imported++;
+        } else if (outcome == ENTRY_SKIPPED) {
+            stats.skipped++;
+            mark_job_item(store, options, i, entry, "skipped", NULL, message);
+        } else {
+            stats.failed++;
+            mark_job_item(store, options, i, entry, "failed", NULL, message);
+        }
+        g_free(message);
+
+        if (options->progress != NULL)
+            options->progress(i + 1, total, entry->name, options->user_data);
+        if (options->job_id > 0)
+            store_job_progress(store, options->job_id, (int)(i + 1));
+    }
+
+    if (out_stats != NULL)
+        *out_stats = stats;
+    return result;
 }
