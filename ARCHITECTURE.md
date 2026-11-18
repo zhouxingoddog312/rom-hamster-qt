@@ -574,6 +574,7 @@ typedef struct {
 | `platform` | 解析规则、扩展名→平台判定、媒体类型识别 | 不读文件内容、不碰数据库、不搬文件 |
 | `classify` | 回答"这个文件归谁"（返回类型 + 目标平台） | **不搬文件、不入库、不弹窗** |
 | `rh-fname` | 判定名字编码，给出显示名与原始字节 | 不改名、不碰磁盘、不猜平台 |
+| `rh-hash` | 单次顺序读盘，按需同时算 CRC32/MD5/SHA1 | 不判断文件类型、不写库、不决定重算策略 |
 | `archive` | 压缩包列表/解压/加密探测/打包 | 不知道"ROM 是什么"，不判定平台 |
 | `dat` | Logiqx 解析、建 `dat_entries`、按哈希查 | 不改游戏记录，只返回匹配结果 |
 | `import` | 唯一编排者：队列、归属、命名、m3u、落库 | 不做判定（调 `classify`/`platform`）、不做解压（调 `archive`） |
@@ -1309,10 +1310,12 @@ ROM_ROOT = /home/zhoux/roms
 
 **M2 进度（2026-11-18）**
 
-已完成 `archive`（列表/解压/加密探测，11 用例，含 GBK 条目名与非法字节兜底）与
-`rh-fname`（6 用例）；`import` 预扫描与 `store` 已接入原始字节，schema 升到 v2 并
-实现 v1→v2 迁移。四组构建（Linux/Windows × CLI/GUI）通过；`ctest` Linux 15/15
-（64 用例）、Windows 13/13（60 用例）。下一步：`hash` → `dat` → `import` 执行阶段。
+已完成 `archive`（列表/解压/加密探测，11 用例，含 GBK 条目名与非法字节兜底）、
+`rh-fname`（6 用例）与 `rh-hash`（流式单次读盘三算，批量复用同一遍读取，7 用例：
+空文件、已知向量、超过缓冲区的大文件、中文路径、批量、取消、错误路径）；`import`
+预扫描与 `store` 已接入原始字节，schema 升到 v2 并实现 v1→v2 迁移。四组构建
+（Linux/Windows × CLI/GUI）通过；`ctest` Linux 16/16（71 用例）、Windows 14/14
+（67 用例）。下一步：`dat` → `import` 执行阶段。
 
 ### 14.1 M4 性能验收（量化）
 

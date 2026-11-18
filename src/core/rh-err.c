@@ -13,6 +13,7 @@ const char *rh_err_str(RhErr err)
     case RH_ERR_UNSUPPORTED:    return "unsupported";
     case RH_ERR_ENCRYPTED:      return "archive is encrypted";
     case RH_ERR_NOT_FOUND:      return "not found";
+    case RH_ERR_CANCELLED:      return "cancelled";
     }
     return "unknown error";
 }

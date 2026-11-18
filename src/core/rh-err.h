@@ -18,7 +18,8 @@ typedef enum {
     RH_ERR_MIGRATE = 6,   /* schema 迁移失败 */
     RH_ERR_UNSUPPORTED = 7, /* 平台、功能或格式不支持 */
     RH_ERR_ENCRYPTED = 8,   /* 压缩包已加密，需要密码 */
-    RH_ERR_NOT_FOUND = 9    /* 目标条目/对象不存在 */
+    RH_ERR_NOT_FOUND = 9,   /* 目标条目/对象不存在 */
+    RH_ERR_CANCELLED = 10   /* 调用方通过回调取消了长任务 */
 } RhErr;
 
 /* 稳定的英文短描述，供日志与 CLI 使用；核心不据此拼用户文案。 */
