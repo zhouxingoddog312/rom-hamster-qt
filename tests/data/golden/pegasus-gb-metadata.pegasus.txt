@@ -1,0 +1,11 @@
+game: Tetris
+file: ./Tetris.gb
+developer: Nintendo
+genre: Puzzle
+release: 1989
+players: 2
+rating: 0.450000
+assets.boxFront: ./media/covers/Tetris.png
+
+
+

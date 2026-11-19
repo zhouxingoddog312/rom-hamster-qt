@@ -1368,6 +1368,31 @@ schema 升到 v4（v1→v2→v3→v4 迁移均有用例）。四组构建（Linu
 通过；`ctest` Linux 17/17（89 用例）、Windows 15/15（85 用例）。纯补丁/混合/二义
 包与顶层街机 ZIP 的平台判定仍留给 M4 的交互；下一步：M3。
 
+**M3 进度（2026-11-19）**
+
+已完成 `query`（`RhFilter` 13 维筛选 + name/rating/year/discs 四种排序，
+`store_games_list` 承担全部 SQL）、`detail`（`RhGameDetail` 只读视图模型，
+含 ROM/媒体/标签/DAT 匹配，不格式化文字）、`manage`（编辑、删除可连带删目录、
+碟号重排、补丁类型、统计、完整性检查）与 `export`（规格解析 + 闭集模板引擎：
+变量/`:xml`/`:json`/`:text` 转义/`%if%`/`%for%`，加载期报 `文件:行号`）。
+三份前端规格落在 `data/frontends/es.conf`、`esde.conf`、`pegasus.conf`，
+ES-DE 不输出媒体标签、上游 EmulationStation 输出，Pegasus 用 `lines` 记录格式。
+CLI 子命令 `list`（别名 `search`）、`show`、`edit`、`delete`、`stats`、`export`
+已接入，`--db` 默认取 `ROM_HAMSTER_DB` 或 `./romhamster.db`。
+
+验收对照：
+
+| 验收项（本节 M3 行） | 状态 | 说明 |
+|---|---|---|
+| 13 维筛选 + 4 排序键结果与直接 SQL 对齐 | 已完成 | `core/query` 2 用例覆盖全部维度、分页与非法排序键 |
+| ES-DE / Pegasus 清单可被前端读取 | 已完成 | 三份模板产出的 XML/文本结构与前端规格一致 |
+| golden file 逐字节 diff | 已完成 | `tests/data/golden/` 下 ES-DE 与 Pegasus 各一份，`core/export` 逐字节比较 |
+| 故意写错的模板在加载期报文件名与行号 | 已完成 | 未知变量/未闭合 `%if%` 均返回 `path:line:` 错误；CLI 原样展示 |
+
+四组构建（Linux/Windows × CLI/GUI）通过；`ctest` Linux **21/21（99 用例）**、
+Windows **19/19（95 用例）**。M2 遗留的纯补丁/混合/二义包交互仍按计划留给 M4；
+下一步：M4 GUI。
+
 ### 14.1 M4 性能验收（量化）
 
 测试数据：脚本生成 **10000 条**游戏记录（每 10 条含 1 个多碟、每 20 条含 3 张截图）。

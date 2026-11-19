@@ -11,16 +11,36 @@
 
 typedef struct RhStore RhStore;
 
-/* 检索条件：字段为 NULL 表示不限（§3、§4） */
+/*
+ * 检索条件：字符串为 NULL 表示不限（§3、§4）。
+ *
+ * 13 个筛选维度：platform / genre / developer / publisher / region /
+ * patch_type / year_from / year_to / multi / has_patch / rom_status /
+ * rom_format / tag（外加 search 关键字，走 LIKE；FTS5 不可用时行为一致）。
+ */
 typedef struct {
     const char *platform;   /* 规范平台 ID */
     const char *search;     /* 子串匹配 name / game_main_name（大小写不敏感） */
-    const char *tag;        /* 标签名 */
+    const char *tag;        /* 单个标签名 */
+    const char **tags;      /* 多个标签名，n_tags > 0 时优先于 tag */
+    int         n_tags;
     const char *rom_status; /* good/baddump/unknown */
-    const char *order_by;   /* "name"（默认）/"year"/"rating"/"updated" */
+    const char *order_by;   /* "name"（默认）/"year"/"rating"/"updated"/"discs" */
     gboolean descending;
-    int limit;              /* <=0 时取 200 */
+    int limit;              /* <=0 时取 200；-1 表示不限（导出用） */
     int offset;
+
+    /* M3 新增维度 */
+    const char *genre;
+    const char *developer;
+    const char *publisher;
+    const char *region;
+    const char *patch_type;
+    int year_from;          /* 0 = 不限 */
+    int year_to;            /* 0 = 不限 */
+    int multi;              /* 0 不限 / 1 是 / 2 否（零初始化即不限） */
+    int has_patch;          /* 0 不限 / 1 是 / 2 否 */
+    const char *rom_format; /* raw/zip/7z/chd/cso/wbfs */
 } RhGameFilter;
 
 /*
@@ -61,12 +81,43 @@ gboolean store_game_id_exists(RhStore *store, const char *id, RhErr *out_err);
 
 RhGame    *store_game_get(RhStore *store, const char *id, RhErr *out_err);
 GPtrArray *store_roms_for_game(RhStore *store, const char *id, RhErr *out_err);
+/* 只改一个 ROM 的碟号（manage 重排碟片用）；disc_no <= 0 写 NULL。 */
+RhErr store_rom_set_disc(RhStore *store, const char *game_id,
+                         const char *filename, int disc_no);
 GPtrArray *store_media_for_game(RhStore *store, const char *id, const char *kind,
                                 RhErr *out_err); /* kind 为 NULL 时返回全部 */
 GPtrArray *store_tags_for_game(RhStore *store, const char *id, RhErr *out_err);
 
 GPtrArray *store_games_list(RhStore *store, const RhGameFilter *filter, RhErr *out_err);
 gint64     store_games_count(RhStore *store, const RhGameFilter *filter, RhErr *out_err);
+
+/* ---------------------------------------------------------------------------
+ * 库统计（只读，SQL 留在 store.c；manage/stats 命令使用）
+ * ------------------------------------------------------------------------- */
+typedef struct {
+    gint64 games;
+    gint64 roms;
+    gint64 media;
+    gint64 rom_bytes;
+    gint64 media_bytes;
+    gint64 multi_disc;   /* is_multi_disc = 1 的游戏数 */
+    gint64 arcade;
+    gint64 with_patch;   /* patch_type != '' */
+    gint64 dat_matched;  /* dat_source 非空的游戏数 */
+    gint64 missing_rom;  /* 没有任何 ROM 记录的游戏数 */
+} RhLibStats;
+
+typedef struct {
+    gchar *platform;
+    gint64 games;
+    gint64 roms;
+    gint64 rom_bytes;
+} RhPlatformStats;
+
+void rh_platform_stats_free(RhPlatformStats *stats);
+
+RhErr      store_stats(RhStore *store, RhLibStats *out, RhErr *out_err);
+GPtrArray *store_stats_by_platform(RhStore *store, RhErr *out_err); /* RhPlatformStats* */
 
 /* ---------------------------------------------------------------------------
  * 作业（导入/导出进度持久化，§5 job 模块）

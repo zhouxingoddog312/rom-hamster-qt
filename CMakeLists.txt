@@ -64,6 +64,10 @@ add_library(romham SHARED
     src/core/rh-archive.c
     src/core/dat.c
     src/core/import.c
+    src/core/query.c
+    src/core/detail.c
+    src/core/manage.c
+    src/core/export.c
     src/core/store.c
     src/core/store-schema.c
 )
@@ -99,7 +103,14 @@ endif()
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
-add_executable(rom-hamster src/cli/main.c)
+add_executable(rom-hamster
+    src/cli/main.c
+    src/cli/cli-common.c
+    src/cli/cmd-query.c
+    src/cli/cmd-detail.c
+    src/cli/cmd-manage.c
+    src/cli/cmd-export.c
+)
 target_link_libraries(rom-hamster PRIVATE romham PkgConfig::GLIB2)
 
 if(MSVC)
@@ -225,6 +236,29 @@ if(BUILD_TESTING)
         romham PkgConfig::GLIB2 PkgConfig::SQLITE3)
     add_test(NAME core/dat COMMAND test-dat)
 
+    add_executable(test-query tests/unit/test-query.c)
+    target_link_libraries(test-query PRIVATE
+        romham PkgConfig::GLIB2 PkgConfig::SQLITE3)
+    add_test(NAME core/query COMMAND test-query)
+
+    add_executable(test-detail tests/unit/test-detail.c)
+    target_link_libraries(test-detail PRIVATE
+        romham PkgConfig::GLIB2 PkgConfig::SQLITE3)
+    add_test(NAME core/detail COMMAND test-detail)
+
+    add_executable(test-manage tests/unit/test-manage.c)
+    target_link_libraries(test-manage PRIVATE
+        romham PkgConfig::GLIB2 PkgConfig::SQLITE3)
+    add_test(NAME core/manage COMMAND test-manage)
+
+    add_executable(test-export tests/unit/test-export.c)
+    target_link_libraries(test-export PRIVATE
+        romham PkgConfig::GLIB2 PkgConfig::SQLITE3)
+    target_compile_definitions(test-export PRIVATE
+        RH_TEST_FRONTEND_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/frontends"
+        RH_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/data/golden")
+    add_test(NAME core/export COMMAND test-export)
+
     add_test(NAME core/no-gui-linkage
         COMMAND ${CMAKE_COMMAND}
             -DLIB=$<TARGET_FILE:romham>
@@ -255,6 +289,8 @@ set_target_properties(rom-hamster PROPERTIES
 
 # 出厂平台规则（只读，见 §10.2 第 2 层）
 install(FILES data/platforms.conf
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/rom-hamster")
+install(DIRECTORY data/frontends
     DESTINATION "${CMAKE_INSTALL_DATADIR}/rom-hamster")
 
 # /etc 下的系统配置与规则副本（conffile，§9.2）

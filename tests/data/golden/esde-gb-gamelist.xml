@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<gameList>
+
+  <game>
+    <path>./Tetris.gb</path>
+    <name>Tetris</name>
+    <rating>0.450000</rating>
+    <releasedate>19890101T000000</releasedate>
+    <developer>Nintendo</developer>
+    <genre>Puzzle</genre>
+    <players>2</players>
+
+  </game>
+
+</gameList>
+

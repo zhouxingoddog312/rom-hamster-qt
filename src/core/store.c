@@ -1,6 +1,7 @@
 #include "store.h"
 
 #include <sqlite3.h>
+#include <string.h>
 
 #include "rh-records.h"
 #include "store-schema.h"
@@ -797,6 +798,33 @@ GPtrArray *store_roms_for_game(RhStore *store, const char *id, RhErr *out_err)
     return roms;
 }
 
+RhErr store_rom_set_disc(RhStore *store, const char *game_id,
+                         const char *filename, int disc_no)
+{
+    RhErr err = ensure_writable(store);
+    if (err != RH_OK)
+        return err;
+    if (game_id == NULL || filename == NULL)
+        return RH_ERR_INVALID;
+
+    sqlite3_stmt *stmt = NULL;
+    err = prepare(store->db, "UPDATE roms SET disc_no = ?"
+                             " WHERE game_id = ? AND filename = ?;", &stmt);
+    if (err != RH_OK)
+        return err;
+
+    if (disc_no > 0)
+        sqlite3_bind_int(stmt, 1, disc_no);
+    else
+        sqlite3_bind_null(stmt, 1);
+    bind_text(stmt, 2, game_id);
+    bind_text(stmt, 3, filename);
+
+    err = sqlite3_step(stmt) == SQLITE_DONE ? RH_OK : RH_ERR_DB;
+    sqlite3_finalize(stmt);
+    return err;
+}
+
 GPtrArray *store_media_for_game(RhStore *store, const char *id, const char *kind,
                                 RhErr *out_err)
 {
@@ -885,25 +913,58 @@ GPtrArray *store_tags_for_game(RhStore *store, const char *id, RhErr *out_err)
     return tags;
 }
 
-/* WHERE 子句构建：平台、搜索、状态、标签 */
+/* WHERE 子句构建：M3 的 13 个筛选维度（§3、§4） */
 static gchar *build_where(const RhGameFilter *filter, GPtrArray *params,
                           gboolean *join_tags)
 {
     GString *where = g_string_new(NULL);
     *join_tags = FALSE;
 
+#define RH_WHERE_AND() \
+    g_string_append(where, where->len ? " AND " : " WHERE ")
+
     if (filter != NULL && filter->platform != NULL) {
-        g_string_append(where, where->len ? " AND " : " WHERE ");
+        RH_WHERE_AND();
         g_string_append(where, "g.platform = ?");
         g_ptr_array_add(params, g_strdup(filter->platform));
     }
     if (filter != NULL && filter->rom_status != NULL) {
-        g_string_append(where, where->len ? " AND " : " WHERE ");
+        RH_WHERE_AND();
         g_string_append(where, "g.rom_status = ?");
         g_ptr_array_add(params, g_strdup(filter->rom_status));
     }
+    if (filter != NULL && filter->genre != NULL) {
+        RH_WHERE_AND();
+        g_string_append(where, "g.genre = ?");
+        g_ptr_array_add(params, g_strdup(filter->genre));
+    }
+    if (filter != NULL && filter->developer != NULL) {
+        RH_WHERE_AND();
+        g_string_append(where, "g.developer = ?");
+        g_ptr_array_add(params, g_strdup(filter->developer));
+    }
+    if (filter != NULL && filter->publisher != NULL) {
+        RH_WHERE_AND();
+        g_string_append(where, "g.publisher = ?");
+        g_ptr_array_add(params, g_strdup(filter->publisher));
+    }
+    if (filter != NULL && filter->region != NULL) {
+        RH_WHERE_AND();
+        g_string_append(where, "g.region = ?");
+        g_ptr_array_add(params, g_strdup(filter->region));
+    }
+    if (filter != NULL && filter->patch_type != NULL) {
+        RH_WHERE_AND();
+        g_string_append(where, "g.patch_type = ?");
+        g_ptr_array_add(params, g_strdup(filter->patch_type));
+    }
+    if (filter != NULL && filter->rom_format != NULL) {
+        RH_WHERE_AND();
+        g_string_append(where, "g.rom_format = ?");
+        g_ptr_array_add(params, g_strdup(filter->rom_format));
+    }
     if (filter != NULL && filter->search != NULL && filter->search[0] != '\0') {
-        g_string_append(where, where->len ? " AND " : " WHERE ");
+        RH_WHERE_AND();
         g_string_append(where, "(g.name LIKE ? OR g.game_main_name LIKE ?)");
         gchar *pattern = g_strdup_printf("%%%s%%", filter->search);
         g_ptr_array_add(params, pattern);
@@ -911,12 +972,53 @@ static gchar *build_where(const RhGameFilter *filter, GPtrArray *params,
     }
     if (filter != NULL && filter->tag != NULL) {
         *join_tags = TRUE;
-        g_string_append(where, where->len ? " AND " : " WHERE ");
+        RH_WHERE_AND();
         g_string_append(where,
                         "g.id IN (SELECT gt.game_id FROM game_tags gt"
                         " JOIN tags t ON t.id = gt.tag_id WHERE t.name = ?)");
         g_ptr_array_add(params, g_strdup(filter->tag));
     }
+    if (filter != NULL && filter->tags != NULL && filter->n_tags > 0) {
+        *join_tags = TRUE;
+        RH_WHERE_AND();
+        g_string_append(where,
+                        "g.id IN (SELECT gt.game_id FROM game_tags gt"
+                        " JOIN tags t ON t.id = gt.tag_id WHERE t.name IN (");
+        for (int i = 0; i < filter->n_tags; i++) {
+            if (i > 0)
+                g_string_append_c(where, ',');
+            g_string_append_c(where, '?');
+            g_ptr_array_add(params, g_strdup(filter->tags[i]));
+        }
+        g_string_append(where, "))");
+    }
+    if (filter != NULL && filter->year_from > 0) {
+        RH_WHERE_AND();
+        g_string_append_printf(where, "g.year >= %d", filter->year_from);
+    }
+    if (filter != NULL && filter->year_to > 0) {
+        RH_WHERE_AND();
+        g_string_append_printf(where, "g.year <= %d", filter->year_to);
+    }
+    if (filter != NULL && (filter->multi == 1 || filter->multi == 2)) {
+        RH_WHERE_AND();
+        g_string_append_printf(where, "g.is_multi_disc = %d",
+                               filter->multi == 1 ? 1 : 0);
+    }
+    if (filter != NULL && (filter->has_patch == 1 || filter->has_patch == 2)) {
+        RH_WHERE_AND();
+        if (filter->has_patch == 1) {
+            g_string_append(where,
+                            "(g.patch_type <> '' OR EXISTS (SELECT 1 FROM media m"
+                            " WHERE m.game_id = g.id AND m.kind = 'patcher'))");
+        } else {
+            g_string_append(where,
+                            "(g.patch_type = '' AND NOT EXISTS (SELECT 1 FROM media m"
+                            " WHERE m.game_id = g.id AND m.kind = 'patcher'))");
+        }
+    }
+
+#undef RH_WHERE_AND
     return g_string_free(where, FALSE);
 }
 
@@ -930,6 +1032,8 @@ static const char *order_clause(const RhGameFilter *filter)
             column = "g.rating";
         else if (g_strcmp0(filter->order_by, "updated") == 0)
             column = "g.updated_at";
+        else if (g_strcmp0(filter->order_by, "discs") == 0)
+            column = "discs";
     }
 
     gboolean desc = filter != NULL && filter->descending;
@@ -939,6 +1043,13 @@ static const char *order_clause(const RhGameFilter *filter)
         return desc ? "g.year DESC, g.name ASC" : "g.year ASC, g.name ASC";
     if (g_strcmp0(column, "g.rating") == 0)
         return desc ? "g.rating DESC, g.name ASC" : "g.rating ASC, g.name ASC";
+    if (g_strcmp0(column, "discs") == 0) {
+        return desc
+            ? "(SELECT COUNT(DISTINCT r.disc_no) FROM roms r"
+              " WHERE r.game_id = g.id AND r.disc_no IS NOT NULL) DESC, g.name ASC"
+            : "(SELECT COUNT(DISTINCT r.disc_no) FROM roms r"
+              " WHERE r.game_id = g.id AND r.disc_no IS NOT NULL) ASC, g.name ASC";
+    }
     return desc ? "g.updated_at DESC, g.name ASC" : "g.updated_at ASC, g.name ASC";
 }
 
@@ -959,6 +1070,8 @@ GPtrArray *store_games_list(RhStore *store, const RhGameFilter *filter, RhErr *o
     (void)join_tags;
 
     int limit = (filter != NULL && filter->limit > 0) ? filter->limit : 200;
+    if (filter != NULL && filter->limit == -1)
+        limit = -1; /* 不限（导出等内部遍历）；SQLite 的 LIMIT -1 即无上限 */
     int offset = (filter != NULL && filter->offset > 0) ? filter->offset : 0;
 
     gchar *sql = g_strdup_printf("SELECT " GAME_COLUMNS " FROM games g%s ORDER BY %s"
@@ -1033,6 +1146,117 @@ gint64 store_games_count(RhStore *store, const RhGameFilter *filter, RhErr *out_
     sqlite3_finalize(stmt);
     g_ptr_array_free(params, TRUE);
     return count;
+}
+
+/* ===========================================================================
+ * 库统计
+ * ========================================================================= */
+
+RhErr store_stats(RhStore *store, RhLibStats *out, RhErr *out_err)
+{
+    if (out_err != NULL)
+        *out_err = RH_OK;
+    if (store == NULL || out == NULL) {
+        if (out_err != NULL)
+            *out_err = RH_ERR_INVALID;
+        return RH_ERR_INVALID;
+    }
+    memset(out, 0, sizeof *out);
+
+    sqlite3_stmt *stmt = NULL;
+    RhErr err = prepare(store->db,
+                        "SELECT"
+                        " (SELECT COUNT(*) FROM games),"
+                        " (SELECT COUNT(*) FROM roms),"
+                        " (SELECT COUNT(*) FROM media),"
+                        " (SELECT COALESCE(SUM(size),0) FROM roms),"
+                        " (SELECT COALESCE(SUM(size),0) FROM media),"
+                        " (SELECT COUNT(*) FROM games WHERE is_multi_disc = 1),"
+                        " (SELECT COUNT(*) FROM games WHERE is_arcade = 1),"
+                        " (SELECT COUNT(*) FROM games WHERE patch_type <> ''),"
+                        " (SELECT COUNT(*) FROM games WHERE dat_source IS NOT NULL),"
+                        " (SELECT COUNT(*) FROM games g"
+                        "   WHERE NOT EXISTS (SELECT 1 FROM roms r WHERE r.game_id = g.id));",
+                        &stmt);
+    if (err != RH_OK) {
+        if (out_err != NULL)
+            *out_err = err;
+        return err;
+    }
+
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        out->games = sqlite3_column_int64(stmt, 0);
+        out->roms = sqlite3_column_int64(stmt, 1);
+        out->media = sqlite3_column_int64(stmt, 2);
+        out->rom_bytes = sqlite3_column_int64(stmt, 3);
+        out->media_bytes = sqlite3_column_int64(stmt, 4);
+        out->multi_disc = sqlite3_column_int64(stmt, 5);
+        out->arcade = sqlite3_column_int64(stmt, 6);
+        out->with_patch = sqlite3_column_int64(stmt, 7);
+        out->dat_matched = sqlite3_column_int64(stmt, 8);
+        out->missing_rom = sqlite3_column_int64(stmt, 9);
+        err = RH_OK;
+    } else {
+        err = RH_ERR_DB;
+    }
+
+    sqlite3_finalize(stmt);
+    if (out_err != NULL)
+        *out_err = err;
+    return err;
+}
+
+void rh_platform_stats_free(RhPlatformStats *stats)
+{
+    if (stats == NULL)
+        return;
+    g_free(stats->platform);
+    g_free(stats);
+}
+
+GPtrArray *store_stats_by_platform(RhStore *store, RhErr *out_err)
+{
+    if (out_err != NULL)
+        *out_err = RH_OK;
+    GPtrArray *list = g_ptr_array_new_with_free_func(
+        (GDestroyNotify)rh_platform_stats_free);
+    if (store == NULL) {
+        if (out_err != NULL)
+            *out_err = RH_ERR_INVALID;
+        return list;
+    }
+
+    sqlite3_stmt *stmt = NULL;
+    RhErr err = prepare(store->db,
+                        "SELECT g.platform, COUNT(*),"
+                        " (SELECT COUNT(*) FROM roms r"
+                        "   JOIN games g2 ON g2.id = r.game_id"
+                        "   WHERE g2.platform = g.platform),"
+                        " (SELECT COALESCE(SUM(r.size),0) FROM roms r"
+                        "   JOIN games g2 ON g2.id = r.game_id"
+                        "   WHERE g2.platform = g.platform)"
+                        " FROM games g GROUP BY g.platform ORDER BY g.platform;",
+                        &stmt);
+    if (err != RH_OK) {
+        if (out_err != NULL)
+            *out_err = err;
+        return list;
+    }
+
+    int rc;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        RhPlatformStats *stats = g_new0(RhPlatformStats, 1);
+        stats->platform = column_str(stmt, 0);
+        stats->games = sqlite3_column_int64(stmt, 1);
+        stats->roms = sqlite3_column_int64(stmt, 2);
+        stats->rom_bytes = sqlite3_column_int64(stmt, 3);
+        g_ptr_array_add(list, stats);
+    }
+    if (rc != SQLITE_DONE && out_err != NULL)
+        *out_err = RH_ERR_DB;
+
+    sqlite3_finalize(stmt);
+    return list;
 }
 
 /* ===========================================================================
