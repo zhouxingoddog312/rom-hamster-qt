@@ -57,6 +57,12 @@ void rh_import_media_free(RhImportMediaFile *media);
 void rh_import_entry_free(RhImportPlanEntry *entry);
 RhImportPlan *rh_import_plan_scan(const RhPlatformRules *rules, const char *source_dir,
                                   RhErr *out_err);
+/*
+ * 预扫描不知道库根目录，target_exists 只能按来源目录探测。
+ * 前端在拿到计划后用库根目录调用一次，重算每个条目的 target_exists。
+ * 只读探测，不改计划的其他字段。
+ */
+void rh_import_plan_set_root(RhImportPlan *plan, const char *root);
 void rh_import_plan_free(RhImportPlan *plan);
 
 /* ---------------------------------------------------------------------------

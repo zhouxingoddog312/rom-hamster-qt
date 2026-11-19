@@ -13,6 +13,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 # ---------------------------------------------------------------------------
 option(RH_GUI        "构建 Qt 6 GUI（rom-hamster-gui）"        ON)
 option(RH_MULTIMEDIA "启用 Qt Multimedia 内嵌视频（可选构建）" OFF)
+set(RH_UPDATE_CHECK_URL "" CACHE STRING "GUI 版本检查 JSON 地址（留空则不检查）")
 set(RH_SANITIZE "" CACHE STRING "Sanitizer 列表，如 address,undefined（留空为关闭）")
 
 set(CMAKE_C_STANDARD 11)
@@ -132,11 +133,24 @@ if(RH_GUI)
 
     qt_add_executable(rom-hamster-gui
         src/gui/main.cpp
+        src/gui/ui-qt.cpp
+        src/gui/model-games.cpp
+        src/gui/window-main.cpp
+        src/gui/window-detail.cpp
+        src/gui/import-job.cpp
+        src/gui/version-check.cpp
         resources/resources.qrc
     )
 
+    target_compile_definitions(rom-hamster-gui PRIVATE
+        RH_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data"
+        RH_UPDATE_CHECK_URL="${RH_UPDATE_CHECK_URL}"
+    )
+
+    # GUI 直接使用 GLib 容器（GPtrArray 等）与核心头文件，因此也链接 GLib
     target_link_libraries(rom-hamster-gui PRIVATE
         romham
+        PkgConfig::GLIB2
         Qt6::Core
         Qt6::Gui
         Qt6::Widgets

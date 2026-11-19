@@ -428,6 +428,23 @@ RhImportPlan *rh_import_plan_scan(const RhPlatformRules *rules, const char *sour
     return plan;
 }
 
+void rh_import_plan_set_root(RhImportPlan *plan, const char *root)
+{
+    if (plan == NULL || root == NULL)
+        return;
+
+    for (guint i = 0; i < plan->entries->len; i++) {
+        RhImportPlanEntry *entry = g_ptr_array_index(plan->entries, i);
+        if (entry->game_dir == NULL) {
+            entry->target_exists = FALSE;
+            continue;
+        }
+        gchar *target = g_build_filename(root, entry->game_dir, NULL);
+        entry->target_exists = g_file_test(target, G_FILE_TEST_IS_DIR);
+        g_free(target);
+    }
+}
+
 /* ===========================================================================
  * 执行阶段
  * ========================================================================= */

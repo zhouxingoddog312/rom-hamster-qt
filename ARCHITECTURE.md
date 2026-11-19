@@ -1393,6 +1393,50 @@ CLI 子命令 `list`（别名 `search`）、`show`、`edit`、`delete`、`stats`
 Windows **19/19（95 用例）**。M2 遗留的纯补丁/混合/二义包交互仍按计划留给 M4；
 下一步：M4 GUI。
 
+**M4 进度（2026-11-19）**
+
+已完成首版 GUI 范围（严格按 §11）：
+
+- `rh-ui.h`（§6.1 契约，仅头文件）与 `src/gui/ui-qt.cpp`：确认/单选/输入/文件与目录选择/
+  只读文本/媒体类型判定；`progress` 经 `RhQtUiBridge` 信号排队回主线程。
+- 主窗口：`GameTableModel`（`QAbstractTableModel`）+ `QTableView`，每页 200 条，
+  `canFetchMore/fetchMore` 按视口取数；关键字 200 ms 防抖、平台下拉
+  （来自 `store_stats_by_platform`）、四种排序与降序开关；筛选全部走 `rh_query_run`。
+- 详情页：元数据 `QFormLayout` + 8 个分页（ROM 文件 / 封面 / 截图 / 视频 / 横幅 /
+  合成图 / 说明 / 补丁）；图片经 `QThreadPool` 解码，磁盘缩略图缓存键为
+  `路径+mtime+尺寸`（`QStandardPaths::CacheLocation/thumbs`）；视频与非图片用
+  `QDesktopServices` 交外部播放器；说明原文用只读 `QPlainTextEdit`。
+- 导入：拖拽与菜单共用两阶段管线。预扫描在 `ImportScanThread`，结束后弹出
+  「将导入 N 游戏 / M 媒体 / K 补丁 / 跳过 J（附原因）」确认框；执行在
+  `ImportExecThread`（独立 `store_open` 连接、零交互、`RhImportExecOptions`
+  的进度/取消回调），`QProgressDialog` 支持取消，作业记录写入 `jobs/job_items`。
+- 生命周期：首启 `QFileDialog::getExistingDirectory` 选库根目录，
+  库固定为 `<ROM_ROOT>/romhamster.db` 并记入 `QSettings`；`QLocalServer` 单实例，
+  第二次启动转交参数并激活已有窗口；启动后异步版本检查（3 s 超时、失败静默、
+  24 小时间隔缓存），远程版本更高时非模态提示打开下载页。
+- 只读库：`store_is_read_only` 为真时禁用导入，浏览与详情仍可用。
+- 核心补充：`rh_import_plan_set_root()` —— 预扫描本身不知道库根目录，
+  由前端拿到计划后重算 `target_exists`，避免把来源目录当成库根。
+
+验收对照：
+
+| 验收项（本节 M4 行） | 状态 | 说明 |
+|---|---|---|
+| 空配置首启走完「选目录 → 建库 → 主窗口」 | 已完成 | 无上次根目录时弹目录选择；`QT_QPA_PLATFORM=offscreen` 启动实测生成 `romhamster.db` |
+| 拖入目录触发导入并有可见进度 | 已完成 | 拖拽与「导入目录…」同一 `startImport` 路径；预扫描/执行各一段进度 |
+| 中文/日文长文件名正常显示 | 已完成 | 全链路 UTF-8（`QString::fromUtf8` / `rh-fname` 原始字节） |
+| Windows 使用系统文件对话框 | 已完成 | `QFileDialog` 默认原生对话框 |
+| 断网时版本检查静默且不阻塞启动 | 已完成 | `setTransferTimeout(3000)`，错误分支直接返回；默认 `RH_UPDATE_CHECK_URL` 为空时跳过 |
+| 视频默认外部播放器 | 已完成 | `QDesktopServices::openUrl`；Multimedia 仍为可选构建 |
+
+四组构建（Linux/Windows × CLI/GUI）通过，0 warning；`ctest` Linux **21/21（99 用例）**、
+Windows **19/19（95 用例）**。本机 Windows 源码路径含中文，Qt 6.12 的 `moc`
+无法在非 ASCII 绝对路径下写输出，验证时用 ASCII 目录联接（junction）映射后构建；
+CI 的仓库路径为 ASCII，不受影响。
+
+未结项：M2 遗留的纯补丁/混装/二义包**逐条交互**未做，当前只在预扫描摘要里
+按原因计数并跳过；§14.1 的启动/滚动/内存指标需在参考机型上人工记录，本轮未测。
+
 ### 14.1 M4 性能验收（量化）
 
 测试数据：脚本生成 **10000 条**游戏记录（每 10 条含 1 个多碟、每 20 条含 3 张截图）。
