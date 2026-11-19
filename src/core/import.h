@@ -50,7 +50,7 @@ typedef struct {
     guint      escaped_names;  /* 无法解码、只能转义的名字数 */
     guint      skipped_patch_archives;    /* 纯补丁包：需要归属游戏，暂不导入 */
     guint      skipped_mixed_archives;    /* 混装包：需要用户决定，暂不导入 */
-    guint      skipped_ambiguous_archives;/* 二义包：平台不唯一 */
+    guint      skipped_ambiguous_archives;/* 二义包：预扫描发现数，同时生成待选条目 */
 } RhImportPlan;
 
 void rh_import_media_free(RhImportMediaFile *media);
@@ -63,6 +63,13 @@ RhImportPlan *rh_import_plan_scan(const RhPlatformRules *rules, const char *sour
  * 只读探测，不改计划的其他字段。
  */
 void rh_import_plan_set_root(RhImportPlan *plan, const char *root);
+/*
+ * 预扫描交互阶段为单个条目指定平台。重建 game_dir 并按库根目录重算
+ * target_exists；成功时清除 ambiguous。参数无效返回 FALSE，原条目不变。
+ */
+gboolean rh_import_entry_assign_platform(RhImportPlanEntry *entry,
+                                         const char *platform,
+                                         const char *root);
 void rh_import_plan_free(RhImportPlan *plan);
 
 /* ---------------------------------------------------------------------------

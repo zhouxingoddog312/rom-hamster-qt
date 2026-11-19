@@ -276,7 +276,7 @@ static void fill_game_dir(RhImportPlanEntry *entry, const char *root)
     entry->game_dir = g_strconcat(entry->platform, "/", safe_name, NULL);
     g_free(safe_name);
 
-    gchar *target = g_build_filename(root, entry->platform, entry->name, NULL);
+    gchar *target = g_build_filename(root, entry->game_dir, NULL);
     entry->target_exists = g_file_test(target, G_FILE_TEST_IS_DIR);
     g_free(target);
 }
@@ -402,9 +402,12 @@ RhImportPlan *rh_import_plan_scan(const RhPlatformRules *rules, const char *sour
                         plan->skipped_patch_archives++;
                     else if (ac->branch == RH_ARCHIVE_MIXED)
                         plan->skipped_mixed_archives++;
-                    else if (ac->branch == RH_ARCHIVE_AMBIGUOUS)
+                    else if (ac->branch == RH_ARCHIVE_AMBIGUOUS) {
                         plan->skipped_ambiguous_archives++;
-                    else
+                        add_single_entry(plan, rules, source_dir, item,
+                                         TRUE, FALSE,
+                                         container_format_for(item->display), NULL);
+                    } else
                         add_single_entry(plan, rules, source_dir, item,
                                          FALSE,
                                          ac->branch == RH_ARCHIVE_ARCADE,
@@ -443,6 +446,24 @@ void rh_import_plan_set_root(RhImportPlan *plan, const char *root)
         entry->target_exists = g_file_test(target, G_FILE_TEST_IS_DIR);
         g_free(target);
     }
+}
+
+gboolean rh_import_entry_assign_platform(RhImportPlanEntry *entry,
+                                         const char *platform,
+                                         const char *root)
+{
+    if (entry == NULL || platform == NULL || platform[0] == '\0' || root == NULL)
+        return FALSE;
+
+    g_free(entry->platform);
+    entry->platform = g_strdup(platform);
+    entry->ambiguous = FALSE;
+
+    g_free(entry->game_dir);
+    entry->game_dir = NULL;
+    entry->target_exists = FALSE;
+    fill_game_dir(entry, root);
+    return TRUE;
 }
 
 /* ===========================================================================

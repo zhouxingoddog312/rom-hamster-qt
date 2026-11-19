@@ -12,6 +12,7 @@
 #include <QFileInfo>
 #include <QFont>
 #include <QHeaderView>
+#include <QInputDialog>
 #include <QItemSelectionModel>
 #include <QLabel>
 #include <QLineEdit>
@@ -432,18 +433,67 @@ void MainWindow::startImport(const QStringList &directories)
             skippedMedia += result.plan->skipped_media;
             patchArchives += result.plan->skipped_patch_archives;
             mixedArchives += result.plan->skipped_mixed_archives;
-            ambiguousArchives += result.plan->skipped_ambiguous_archives;
             guessedNames += result.plan->guessed_names;
             escapedNames += result.plan->escaped_names;
+        }
+
+        /* 所有平台询问都集中在预扫描后的主线程；执行线程保持零交互。 */
+        const QByteArray rootUtf8 = m_root.toUtf8();
+        for (const ImportSourcePlan &result : results) {
+            if (result.plan == nullptr)
+                continue;
 
             for (guint i = 0; i < result.plan->entries->len; i++) {
-                const RhImportPlanEntry *entry =
-                    static_cast<const RhImportPlanEntry *>(
-                        g_ptr_array_index(result.plan->entries, i));
+                RhImportPlanEntry *entry = static_cast<RhImportPlanEntry *>(
+                    g_ptr_array_index(result.plan->entries, i));
+
+                if (entry->platform == nullptr) {
+                    GPtrArray *found = entry->roms->len > 0
+                        ? rh_platform_candidates_for_file(
+                              m_rules,
+                              static_cast<const gchar *>(g_ptr_array_index(entry->roms, 0)))
+                        : nullptr;
+                    const GPtrArray *platforms = found != nullptr && found->len > 0
+                        ? found : rh_platform_all(m_rules);
+
+                    if (platforms->len > 0) {
+                        QStringList choices{QStringLiteral("不指定（执行时跳过）")};
+                        for (guint p = 0; p < platforms->len; p++) {
+                            const RhPlatform *platform = static_cast<const RhPlatform *>(
+                                g_ptr_array_index(platforms, p));
+                            choices.append(QString::fromUtf8(platform->id));
+                        }
+
+                        bool ok = false;
+                        const QString picked = QInputDialog::getItem(
+                            this, QStringLiteral("指定平台"),
+                            QStringLiteral("条目：%1\n来源目录：%2\n"
+                                           "请选择平台；不指定的条目将在执行时跳过。")
+                                .arg(QString::fromUtf8(entry->name),
+                                     QDir::toNativeSeparators(result.source)),
+                            choices, 0, false, &ok);
+                        const int choice = choices.indexOf(picked);
+                        if (ok && choice > 0) {
+                            const RhPlatform *platform = static_cast<const RhPlatform *>(
+                                g_ptr_array_index(platforms, choice - 1));
+                            rh_import_entry_assign_platform(entry, platform->id,
+                                                            rootUtf8.constData());
+                        }
+                    }
+                    if (found != nullptr)
+                        g_ptr_array_free(found, TRUE);
+                }
+
                 mediaCount += static_cast<int>(entry->media->len);
                 patchCount += static_cast<int>(entry->patches->len);
-                if (entry->platform == nullptr)
+                if (entry->platform == nullptr) {
                     ambiguousEntries++;
+                    if (entry->roms->len > 0
+                        && rh_platform_is_archive(
+                            m_rules,
+                            static_cast<const gchar *>(g_ptr_array_index(entry->roms, 0))))
+                        ambiguousArchives++;
+                }
                 if (entry->target_exists)
                     existingTargets++;
             }
@@ -454,7 +504,7 @@ void MainWindow::startImport(const QStringList &directories)
                            "将导入游戏：%2\n"
                            "其中媒体文件：%3，补丁文件：%4\n"
                            "跳过：未知类型 %5，顶层媒体 %6，纯补丁包 %7，"
-                           "混装包 %8，平台不唯一包 %9\n"
+                           "混装包 %8，未定平台压缩包 %9\n"
                            "平台未定（执行时跳过）：%10\n"
                            "目标目录已存在（执行时跳过）：%11\n"
                            "编码推测名：%12，转义名：%13")

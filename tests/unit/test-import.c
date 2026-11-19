@@ -808,7 +808,7 @@ static void test_scan_archive_branches(void)
     RhErr err = RH_OK;
     RhImportPlan *plan = rh_import_plan_scan(rules, src, &err);
     g_assert_cmpint(err, ==, RH_OK);
-    g_assert_cmpuint(plan->entries->len, ==, 2);
+    g_assert_cmpuint(plan->entries->len, ==, 3);
     g_assert_cmpuint(plan->skipped_mixed_archives, ==, 1);
     g_assert_cmpuint(plan->skipped_patch_archives, ==, 1);
     g_assert_cmpuint(plan->skipped_ambiguous_archives, ==, 1);
@@ -826,6 +826,13 @@ static void test_scan_archive_branches(void)
     /* 顶层 `.zip` 同时命中多个街机平台，不猜平台，执行阶段会跳过 */
     g_assert_null(arcade_entry->platform);
 
+    RhImportPlanEntry *ambiguous_entry = find_entry(plan, "ambiguous.zip");
+    g_assert_nonnull(ambiguous_entry);
+    g_assert_null(ambiguous_entry->platform);
+    g_assert_true(ambiguous_entry->ambiguous);
+    g_assert_false(ambiguous_entry->is_arcade);
+    g_assert_cmpstr(ambiguous_entry->rom_format, ==, "zip");
+
     /* 归档按整包入库：不展开，rom_format 记 zip */
     RhStore *store = open_store_at(lib);
     RhImportExecOptions options = {0};
@@ -835,7 +842,7 @@ static void test_scan_archive_branches(void)
     g_assert_cmpint(rh_import_execute(store, rules, plan, &options, &stats),
                     ==, RH_OK);
     g_assert_cmpuint(stats.imported, ==, 1);
-    g_assert_cmpuint(stats.skipped, ==, 1);
+    g_assert_cmpuint(stats.skipped, ==, 2);
 
     gchar *copied_single = g_build_filename(lib, "gb", "single.zip", "single.zip", NULL);
     g_assert_true(g_file_test(copied_single, G_FILE_TEST_IS_REGULAR));
@@ -850,6 +857,52 @@ static void test_scan_archive_branches(void)
     g_ptr_array_unref(games);
 
     store_close(store);
+    rh_import_plan_free(plan);
+    rh_platform_rules_free(rules);
+    remove_tree(src);
+    remove_tree(lib);
+    g_free(src);
+    g_free(lib);
+}
+
+static void test_assign_platform(void)
+{
+    RhPlatformRules *rules = load();
+    gchar *src = g_dir_make_tmp("romham-src-XXXXXX", NULL);
+    gchar *lib = g_dir_make_tmp("romham-lib-XXXXXX", NULL);
+    write_file(src, "game.bin", "abc");
+
+    RhErr err = RH_OK;
+    RhImportPlan *plan = rh_import_plan_scan(rules, src, &err);
+    g_assert_cmpint(err, ==, RH_OK);
+    g_assert_cmpuint(plan->entries->len, ==, 1);
+
+    RhImportPlanEntry *entry = find_entry(plan, "game.bin");
+    g_assert_nonnull(entry);
+    g_assert_null(entry->platform);
+    g_assert_null(entry->game_dir);
+    g_assert_true(entry->ambiguous);
+
+    g_assert_false(rh_import_entry_assign_platform(NULL, "megadrive", lib));
+    g_assert_false(rh_import_entry_assign_platform(entry, NULL, lib));
+    g_assert_false(rh_import_entry_assign_platform(entry, "", lib));
+    g_assert_false(rh_import_entry_assign_platform(entry, "megadrive", NULL));
+    g_assert_null(entry->platform);
+
+    gchar *target = g_build_filename(lib, "megadrive", "game.bin", NULL);
+    g_assert_cmpint(g_mkdir_with_parents(target, 0755), ==, 0);
+    g_assert_true(rh_import_entry_assign_platform(entry, "megadrive", lib));
+    g_assert_cmpstr(entry->platform, ==, "megadrive");
+    g_assert_cmpstr(entry->game_dir, ==, "megadrive/game.bin");
+    g_assert_false(entry->ambiguous);
+    g_assert_true(entry->target_exists);
+    g_free(target);
+
+    g_assert_true(rh_import_entry_assign_platform(entry, "snes", lib));
+    g_assert_cmpstr(entry->platform, ==, "snes");
+    g_assert_cmpstr(entry->game_dir, ==, "snes/game.bin");
+    g_assert_false(entry->target_exists);
+
     rh_import_plan_free(plan);
     rh_platform_rules_free(rules);
     remove_tree(src);
@@ -940,6 +993,7 @@ int main(int argc, char **argv)
     g_test_add_func("/import/execute-cancel", test_execute_cancel);
     g_test_add_func("/import/execute-multidisc", test_execute_multidisc);
     g_test_add_func("/import/scan-archive-branches", test_scan_archive_branches);
+    g_test_add_func("/import/assign-platform", test_assign_platform);
     g_test_add_func("/import/execute-resume", test_execute_resume);
     return g_test_run();
 }
