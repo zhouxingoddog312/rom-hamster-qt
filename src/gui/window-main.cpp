@@ -414,6 +414,7 @@ void MainWindow::startImport(const QStringList &directories)
         guint patchArchives = 0;
         guint mixedArchives = 0;
         guint ambiguousArchives = 0;
+        guint pendingArchives = 0;
         guint guessedNames = 0;
         guint escapedNames = 0;
 
@@ -433,6 +434,7 @@ void MainWindow::startImport(const QStringList &directories)
             skippedMedia += result.plan->skipped_media;
             patchArchives += result.plan->skipped_patch_archives;
             mixedArchives += result.plan->skipped_mixed_archives;
+            ambiguousArchives += result.plan->skipped_ambiguous_archives;
             guessedNames += result.plan->guessed_names;
             escapedNames += result.plan->escaped_names;
         }
@@ -492,7 +494,7 @@ void MainWindow::startImport(const QStringList &directories)
                         && rh_platform_is_archive(
                             m_rules,
                             static_cast<const gchar *>(g_ptr_array_index(entry->roms, 0))))
-                        ambiguousArchives++;
+                        pendingArchives++;
                 }
                 if (entry->target_exists)
                     existingTargets++;
@@ -503,11 +505,12 @@ void MainWindow::startImport(const QStringList &directories)
             QStringLiteral("扫描文件：%1\n"
                            "将导入游戏：%2\n"
                            "其中媒体文件：%3，补丁文件：%4\n"
-                           "跳过：未知类型 %5，顶层媒体 %6，纯补丁包 %7，"
-                           "混装包 %8，未定平台压缩包 %9\n"
-                           "平台未定（执行时跳过）：%10\n"
-                           "目标目录已存在（执行时跳过）：%11\n"
-                           "编码推测名：%12，转义名：%13")
+                           "跳过：未知类型 %5，顶层媒体 %6，纯补丁包 %7\n"
+                           "待定平台压缩包：混装 %8，二义 %9"
+                           "（其中未指定 %10，执行时跳过）\n"
+                           "平台未定（执行时跳过）：%11\n"
+                           "目标目录已存在（执行时跳过）：%12\n"
+                           "编码推测名：%13，转义名：%14")
                 .arg(filesScanned)
                 .arg(entries)
                 .arg(mediaCount)
@@ -517,19 +520,25 @@ void MainWindow::startImport(const QStringList &directories)
                 .arg(patchArchives)
                 .arg(mixedArchives)
                 .arg(ambiguousArchives)
+                .arg(pendingArchives)
                 .arg(ambiguousEntries)
                 .arg(existingTargets)
                 .arg(guessedNames)
                 .arg(escapedNames);
 
-        if (entries == 0) {
+        /* 未定平台的条目执行时跳过，确认框只统计真正会落库的条目。 */
+        const int importable = entries - ambiguousEntries;
+
+        if (importable == 0) {
             rh_import_plans_free(plans);
             m_importing = false;
 
             QMessageBox box(this);
             box.setIcon(QMessageBox::Information);
             box.setWindowTitle(QStringLiteral("导入"));
-            box.setText(QStringLiteral("没有可导入的条目。"));
+            box.setText(entries == 0
+                ? QStringLiteral("没有可导入的条目。")
+                : QStringLiteral("%1 个条目均未确定平台，执行时都会跳过。").arg(entries));
             box.setDetailedText(detailText +
                                 (errors.isEmpty()
                                      ? QString()
@@ -541,7 +550,7 @@ void MainWindow::startImport(const QStringList &directories)
         QMessageBox confirm(this);
         confirm.setIcon(QMessageBox::Question);
         confirm.setWindowTitle(QStringLiteral("确认导入"));
-        confirm.setText(QStringLiteral("将导入 %1 个游戏，是否继续？").arg(entries));
+        confirm.setText(QStringLiteral("将导入 %1 个游戏，是否继续？").arg(importable));
         confirm.setDetailedText(detailText);
         confirm.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
         confirm.setDefaultButton(QMessageBox::Yes);

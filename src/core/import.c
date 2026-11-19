@@ -400,9 +400,12 @@ RhImportPlan *rh_import_plan_scan(const RhPlatformRules *rules, const char *sour
                     RhArchiveClassifyResult *ac = rh_classify_archive(rules, paths);
                     if (ac->branch == RH_ARCHIVE_PATCHES)
                         plan->skipped_patch_archives++;
-                    else if (ac->branch == RH_ARCHIVE_MIXED)
+                    else if (ac->branch == RH_ARCHIVE_MIXED) {
                         plan->skipped_mixed_archives++;
-                    else if (ac->branch == RH_ARCHIVE_AMBIGUOUS) {
+                        add_single_entry(plan, rules, source_dir, item,
+                                         TRUE, FALSE,
+                                         container_format_for(item->display), NULL);
+                    } else if (ac->branch == RH_ARCHIVE_AMBIGUOUS) {
                         plan->skipped_ambiguous_archives++;
                         add_single_entry(plan, rules, source_dir, item,
                                          TRUE, FALSE,

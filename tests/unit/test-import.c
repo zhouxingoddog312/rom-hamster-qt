@@ -808,7 +808,7 @@ static void test_scan_archive_branches(void)
     RhErr err = RH_OK;
     RhImportPlan *plan = rh_import_plan_scan(rules, src, &err);
     g_assert_cmpint(err, ==, RH_OK);
-    g_assert_cmpuint(plan->entries->len, ==, 3);
+    g_assert_cmpuint(plan->entries->len, ==, 4);
     g_assert_cmpuint(plan->skipped_mixed_archives, ==, 1);
     g_assert_cmpuint(plan->skipped_patch_archives, ==, 1);
     g_assert_cmpuint(plan->skipped_ambiguous_archives, ==, 1);
@@ -833,6 +833,14 @@ static void test_scan_archive_branches(void)
     g_assert_false(ambiguous_entry->is_arcade);
     g_assert_cmpstr(ambiguous_entry->rom_format, ==, "zip");
 
+    /* 混装包同样整包入库，平台留待预扫描交互指定 */
+    RhImportPlanEntry *mixed_entry = find_entry(plan, "mixed.zip");
+    g_assert_nonnull(mixed_entry);
+    g_assert_null(mixed_entry->platform);
+    g_assert_true(mixed_entry->ambiguous);
+    g_assert_false(mixed_entry->is_arcade);
+    g_assert_cmpstr(mixed_entry->rom_format, ==, "zip");
+
     /* 归档按整包入库：不展开，rom_format 记 zip */
     RhStore *store = open_store_at(lib);
     RhImportExecOptions options = {0};
@@ -842,7 +850,7 @@ static void test_scan_archive_branches(void)
     g_assert_cmpint(rh_import_execute(store, rules, plan, &options, &stats),
                     ==, RH_OK);
     g_assert_cmpuint(stats.imported, ==, 1);
-    g_assert_cmpuint(stats.skipped, ==, 2);
+    g_assert_cmpuint(stats.skipped, ==, 3);
 
     gchar *copied_single = g_build_filename(lib, "gb", "single.zip", "single.zip", NULL);
     g_assert_true(g_file_test(copied_single, G_FILE_TEST_IS_REGULAR));

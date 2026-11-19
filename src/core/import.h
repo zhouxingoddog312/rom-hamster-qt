@@ -49,7 +49,7 @@ typedef struct {
     guint      guessed_names;  /* 按 GB18030 推测成功的名字数 */
     guint      escaped_names;  /* 无法解码、只能转义的名字数 */
     guint      skipped_patch_archives;    /* 纯补丁包：需要归属游戏，暂不导入 */
-    guint      skipped_mixed_archives;    /* 混装包：需要用户决定，暂不导入 */
+    guint      skipped_mixed_archives;    /* 混装包：预扫描发现数，同时生成待选条目 */
     guint      skipped_ambiguous_archives;/* 二义包：预扫描发现数，同时生成待选条目 */
 } RhImportPlan;
 
