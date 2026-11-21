@@ -3,7 +3,10 @@
 #
 # 用法：bash packaging/make-gui-deb.sh
 # 依赖：cmake/ninja、已配置好的 build/linux-gui、dpkg-deb、dpkg-shlibdeps、
-#       qmake6（用于定位构建时使用的 Qt 库与插件）
+#       qmake6（用于定位构建时使用的 Qt 库与插件；Qt 官方安装包里叫 qmake，
+#       可用 RH_QMAKE 显式指定）
+#
+# 环境变量：BUILD_DIR 覆盖构建树，WORK 覆盖临时目录，RH_QMAKE 指定 qmake。
 #
 # 布局：
 #   /usr/bin/rom-hamster-gui
@@ -25,9 +28,18 @@ version=$(sed -n '/^project(/,/^)/p' "$repo/CMakeLists.txt" |
 [ -n "$version" ] || { echo "无法从 CMakeLists.txt 解析版本号" >&2; exit 1; }
 arch=$(dpkg --print-architecture)
 
-qt_libs=$(qmake6 -query QT_INSTALL_LIBS)
-qt_plugins=$(qmake6 -query QT_INSTALL_PLUGINS)
-[ -d "$qt_libs" ] || { echo "qmake6 找不到 Qt 库目录" >&2; exit 1; }
+qmake=${RH_QMAKE:-}
+if [ -z "$qmake" ]; then
+    qmake=$(command -v qmake6 || command -v qmake || true)
+fi
+[ -n "$qmake" ] || {
+    echo "找不到 qmake6/qmake。装上 Qt 6 开发工具，或用 RH_QMAKE 指定。" >&2
+    exit 1
+}
+
+qt_libs=$("$qmake" -query QT_INSTALL_LIBS)
+qt_plugins=$("$qmake" -query QT_INSTALL_PLUGINS)
+[ -d "$qt_libs" ] || { echo "$qmake 找不到 Qt 库目录" >&2; exit 1; }
 
 echo "==> 安装 GUI 到 $stage"
 rm -rf "$work"

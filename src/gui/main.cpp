@@ -13,6 +13,7 @@
 #include <QMessageBox>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QTimer>
 #include <QTranslator>
 #include <QUrl>
 
@@ -182,9 +183,16 @@ int main(int argc, char *argv[])
         QStringLiteral("import"),
         QCoreApplication::translate("rom-hamster", "Import directory after startup"),
         QStringLiteral("DIR"));
+    /* 截图模式：把主窗口渲染成 PNG 后退出。用于生成 AppStream 截图，
+     * 在无显示环境（QT_QPA_PLATFORM=offscreen）里也能用。 */
+    QCommandLineOption screenshotOption(
+        QStringLiteral("screenshot"),
+        QStringLiteral("Render the main window to PATH and exit"),
+        QStringLiteral("PATH"));
     parser.addOption(dbOption);
     parser.addOption(rootOption);
     parser.addOption(importOption);
+    parser.addOption(screenshotOption);
     parser.process(app);
 
     const QStringList positional = parser.positionalArguments();
@@ -269,6 +277,18 @@ int main(int argc, char *argv[])
 
     MainWindow window(store, db, root, rules);
     window.show();
+
+    const QString screenshotPath = parser.value(screenshotOption);
+    if (!screenshotPath.isEmpty()) {
+        /* 等首帧布局完成再抓图，否则表格列宽可能还是初始值。 */
+        QTimer::singleShot(500, &app, [&window, screenshotPath]() {
+            const bool saved = window.grab().save(screenshotPath);
+            if (!saved)
+                qWarning("cannot write screenshot to %s",
+                         screenshotPath.toUtf8().constData());
+            QCoreApplication::exit(saved ? 0 : 1);
+        });
+    }
 
     if (readOnly) {
         QMessageBox::warning(

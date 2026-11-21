@@ -12,6 +12,12 @@
     </p>
   </description>
   <launchable type="desktop-id">io.github.goddog312.RomHamster.desktop</launchable>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Browse and filter a ROM library by platform</caption>
+      <image type="source">https://raw.githubusercontent.com/zhouxingoddog312/rom-hamster-qt/main/data/screenshots/rom-hamster-main.png</image>
+    </screenshot>
+  </screenshots>
   <url type="homepage">https://gitee.com/goddog312/rom-hamster-qt</url>
   <categories>
     <category>Utility</category>
