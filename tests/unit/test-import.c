@@ -434,8 +434,11 @@ static void test_execute(void)
     gchar *cover = g_build_filename(lib, "gb", "gb", "covers", "Tetris.png", NULL);
     g_assert_true(g_file_test(cover, G_FILE_TEST_IS_REGULAR));
     g_free(cover);
-    gchar *patch = g_build_filename(lib, "gb", "gb", "translation.ips", NULL);
+    gchar *patch = g_build_filename(lib, "gb", "gb", "patcher", "translation.ips", NULL);
     g_assert_true(g_file_test(patch, G_FILE_TEST_IS_REGULAR));
+    g_free(patch);
+    patch = g_build_filename(lib, "gb", "gb", "translation.ips", NULL);
+    g_assert_false(g_file_test(patch, G_FILE_TEST_EXISTS));
     g_free(patch);
 
     RhGameFilter filter = {0};
@@ -468,8 +471,10 @@ static void test_execute(void)
         RhMediaFile *m = g_ptr_array_index(media, i);
         if (g_strcmp0(m->kind, "covers") == 0)
             has_cover = TRUE;
-        if (g_strcmp0(m->kind, "patcher") == 0)
+        if (g_strcmp0(m->kind, "patcher") == 0) {
             has_patch = TRUE;
+            g_assert_cmpstr(m->filename, ==, "patcher/translation.ips");
+        }
     }
     g_assert_true(has_cover);
     g_assert_true(has_patch);
@@ -509,9 +514,10 @@ static void test_execute_conflict(void)
     gchar *src = g_dir_make_tmp("romham-src-XXXXXX", NULL);
     gchar *lib = g_dir_make_tmp("romham-lib-XXXXXX", NULL);
     write_file(src, "gb/Tetris (World).gb", "new");
+    write_file(src, "gb/translation.ips", "new-patch");
 
-    /* 目标已存在：整条跳过，原文件一个字节都不改。 */
-    write_file(lib, "gb/gb/Tetris (World).gb", "old");
+    /* patcher 下任一目标已存在：整条跳过，原文件与 ROM 都不改。 */
+    write_file(lib, "gb/gb/patcher/translation.ips", "old-patch");
 
     RhStore *store = open_store_at(lib);
     RhErr err = RH_OK;
@@ -528,14 +534,17 @@ static void test_execute_conflict(void)
     g_assert_cmpuint(stats.skipped, ==, 1);
     g_assert_cmpuint(stats.imported, ==, 0);
 
-    gchar *target = g_build_filename(lib, "gb", "gb", "Tetris (World).gb", NULL);
+    gchar *target = g_build_filename(lib, "gb", "gb", "patcher", "translation.ips", NULL);
     gchar *content = NULL;
     g_assert_true(g_file_get_contents(target, &content, NULL, NULL));
-    g_assert_cmpstr(content, ==, "old");
+    g_assert_cmpstr(content, ==, "old-patch");
     g_free(content);
     gchar *part = g_strdup_printf("%s.romham-part", target);
     g_assert_false(g_file_test(part, G_FILE_TEST_EXISTS));
     g_free(part);
+    g_free(target);
+    target = g_build_filename(lib, "gb", "gb", "Tetris (World).gb", NULL);
+    g_assert_false(g_file_test(target, G_FILE_TEST_EXISTS));
     g_free(target);
 
     RhGameFilter filter = {0};
@@ -808,7 +817,7 @@ static void test_scan_archive_branches(void)
     RhErr err = RH_OK;
     RhImportPlan *plan = rh_import_plan_scan(rules, src, &err);
     g_assert_cmpint(err, ==, RH_OK);
-    g_assert_cmpuint(plan->entries->len, ==, 4);
+    g_assert_cmpuint(plan->entries->len, ==, 5);
     g_assert_cmpuint(plan->skipped_mixed_archives, ==, 1);
     g_assert_cmpuint(plan->skipped_patch_archives, ==, 1);
     g_assert_cmpuint(plan->skipped_ambiguous_archives, ==, 1);
@@ -841,7 +850,16 @@ static void test_scan_archive_branches(void)
     g_assert_false(mixed_entry->is_arcade);
     g_assert_cmpstr(mixed_entry->rom_format, ==, "zip");
 
-    /* 归档按整包入库：不展开，rom_format 记 zip */
+    RhImportPlanEntry *patch_entry = find_entry(plan, "fixes.zip");
+    g_assert_nonnull(patch_entry);
+    g_assert_true(patch_entry->is_patch_bundle);
+    g_assert_null(patch_entry->target_game_id);
+    g_assert_null(patch_entry->platform);
+    g_assert_cmpuint(patch_entry->roms->len, ==, 1);
+    g_assert_cmpstr(g_ptr_array_index(patch_entry->roms, 0), ==, "fixes.zip");
+    g_assert_cmpuint(patch_entry->patches->len, ==, 2);
+
+    /* 普通归档按整包入库；未归属纯补丁包与其余待定条目跳过。 */
     RhStore *store = open_store_at(lib);
     RhImportExecOptions options = {0};
     options.root = lib;
@@ -850,7 +868,7 @@ static void test_scan_archive_branches(void)
     g_assert_cmpint(rh_import_execute(store, rules, plan, &options, &stats),
                     ==, RH_OK);
     g_assert_cmpuint(stats.imported, ==, 1);
-    g_assert_cmpuint(stats.skipped, ==, 3);
+    g_assert_cmpuint(stats.skipped, ==, 4);
 
     gchar *copied_single = g_build_filename(lib, "gb", "single.zip", "single.zip", NULL);
     g_assert_true(g_file_test(copied_single, G_FILE_TEST_IS_REGULAR));
@@ -866,6 +884,131 @@ static void test_scan_archive_branches(void)
 
     store_close(store);
     rh_import_plan_free(plan);
+    rh_platform_rules_free(rules);
+    remove_tree(src);
+    remove_tree(lib);
+    g_free(src);
+    g_free(lib);
+}
+
+static void test_patch_bundle(void)
+{
+    RhPlatformRules *rules = load();
+    gchar *src = g_dir_make_tmp("romham-src-XXXXXX", NULL);
+    gchar *lib = g_dir_make_tmp("romham-lib-XXXXXX", NULL);
+
+    const gchar *members[] = {
+        "fix.ips", "mods/fix.bps", "readme.txt", NULL
+    };
+    gchar *archive = g_build_filename(src, "fixes.zip", NULL);
+    build_zip(archive, members);
+    g_free(archive);
+
+    RhStore *store = open_store_at(lib);
+    RhGame *target = rh_game_new();
+    target->id = g_strdup("game0001");
+    target->platform = g_strdup("gb");
+    target->name = g_strdup("Tetris");
+    target->game_main_name = g_strdup("Tetris");
+    target->dir_path = g_strdup("gb/Tetris");
+    g_free(target->patch_type);
+    target->patch_type = g_strdup("platform");
+    g_assert_cmpint(store_game_insert(store, target, NULL, NULL, NULL), ==, RH_OK);
+    rh_game_free(target);
+
+    RhGame *conflict = rh_game_new();
+    conflict->id = g_strdup("game0002");
+    conflict->platform = g_strdup("gb");
+    conflict->name = g_strdup("Conflict");
+    conflict->game_main_name = g_strdup("Conflict");
+    conflict->dir_path = g_strdup("gb/Conflict");
+    g_assert_cmpint(store_game_insert(store, conflict, NULL, NULL, NULL), ==, RH_OK);
+    rh_game_free(conflict);
+    write_file(lib, "gb/Conflict/patcher/mods/fix.bps", "old");
+
+    RhErr err = RH_OK;
+    RhImportPlan *plan = rh_import_plan_scan(rules, src, &err);
+    g_assert_cmpint(err, ==, RH_OK);
+    g_assert_cmpuint(plan->entries->len, ==, 1);
+    RhImportPlanEntry *entry = find_entry(plan, "fixes.zip");
+    g_assert_nonnull(entry);
+    g_assert_true(entry->is_patch_bundle);
+    g_assert_cmpuint(entry->patches->len, ==, 2);
+    g_assert_cmpstr(g_ptr_array_index(entry->patches, 0), ==, "fix.ips");
+    g_assert_cmpstr(g_ptr_array_index(entry->patches, 1), ==, "mods/fix.bps");
+
+    g_assert_false(rh_import_entry_assign_patch_target(NULL, store, "game0001"));
+    g_assert_false(rh_import_entry_assign_patch_target(entry, store, "missing"));
+    g_assert_null(entry->target_game_id);
+
+    /* 嵌套补丁目标冲突时，前面的补丁也不能落盘或入库。 */
+    g_assert_true(rh_import_entry_assign_patch_target(entry, store, "game0002"));
+    g_assert_cmpstr(entry->platform, ==, "gb");
+    g_assert_cmpstr(entry->game_dir, ==, "gb/Conflict");
+    RhImportExecOptions options = {0};
+    options.root = lib;
+    options.source_dir = src;
+    RhImportExecStats stats;
+    g_assert_cmpint(rh_import_execute(store, rules, plan, &options, &stats),
+                    ==, RH_OK);
+    g_assert_cmpuint(stats.imported, ==, 0);
+    g_assert_cmpuint(stats.skipped, ==, 1);
+    g_assert_cmpuint(stats.failed, ==, 0);
+    gchar *path = g_build_filename(lib, "gb", "Conflict", "patcher", "fix.ips", NULL);
+    g_assert_false(g_file_test(path, G_FILE_TEST_EXISTS));
+    g_free(path);
+    GPtrArray *media = store_media_for_game(store, "game0002", "patcher", &err);
+    g_assert_cmpuint(media->len, ==, 0);
+    g_ptr_array_unref(media);
+
+    g_assert_true(rh_import_entry_assign_patch_target(entry, store, "game0001"));
+    g_assert_cmpstr(entry->target_game_id, ==, "game0001");
+    g_assert_cmpint(rh_import_execute(store, rules, plan, &options, &stats),
+                    ==, RH_OK);
+    g_assert_cmpuint(stats.imported, ==, 1);
+    g_assert_cmpuint(stats.skipped, ==, 0);
+    g_assert_cmpuint(stats.failed, ==, 0);
+
+    path = g_build_filename(lib, "gb", "Tetris", "patcher", "fix.ips", NULL);
+    g_assert_true(g_file_test(path, G_FILE_TEST_IS_REGULAR));
+    g_free(path);
+    path = g_build_filename(lib, "gb", "Tetris", "patcher", "mods", "fix.bps", NULL);
+    g_assert_true(g_file_test(path, G_FILE_TEST_IS_REGULAR));
+    g_free(path);
+    path = g_build_filename(lib, "gb", "Tetris", "patcher", "readme.txt", NULL);
+    g_assert_false(g_file_test(path, G_FILE_TEST_EXISTS));
+    g_free(path);
+    path = g_build_filename(lib, "gb", "Tetris", "fix.ips", NULL);
+    g_assert_false(g_file_test(path, G_FILE_TEST_EXISTS));
+    g_free(path);
+
+    media = store_media_for_game(store, "game0001", "patcher", &err);
+    g_assert_cmpint(err, ==, RH_OK);
+    g_assert_cmpuint(media->len, ==, 2);
+    gboolean has_root_patch = FALSE;
+    gboolean has_nested_patch = FALSE;
+    for (guint i = 0; i < media->len; i++) {
+        RhMediaFile *patch = g_ptr_array_index(media, i);
+        g_assert_true(patch->has_size);
+        g_assert_cmpint(patch->size, ==, 3);
+        if (g_strcmp0(patch->filename, "patcher/fix.ips") == 0)
+            has_root_patch = TRUE;
+        if (g_strcmp0(patch->filename, "patcher/mods/fix.bps") == 0)
+            has_nested_patch = TRUE;
+    }
+    g_assert_true(has_root_patch);
+    g_assert_true(has_nested_patch);
+    g_ptr_array_unref(media);
+
+    target = store_game_get(store, "game0001", &err);
+    g_assert_nonnull(target);
+    g_assert_cmpstr(target->patch_type, ==, "mixed");
+    rh_game_free(target);
+    RhGameFilter filter = {0};
+    g_assert_cmpint(store_games_count(store, &filter, &err), ==, 2);
+
+    rh_import_plan_free(plan);
+    store_close(store);
     rh_platform_rules_free(rules);
     remove_tree(src);
     remove_tree(lib);
@@ -1001,6 +1144,7 @@ int main(int argc, char **argv)
     g_test_add_func("/import/execute-cancel", test_execute_cancel);
     g_test_add_func("/import/execute-multidisc", test_execute_multidisc);
     g_test_add_func("/import/scan-archive-branches", test_scan_archive_branches);
+    g_test_add_func("/import/patch-bundle", test_patch_bundle);
     g_test_add_func("/import/assign-platform", test_assign_platform);
     g_test_add_func("/import/execute-resume", test_execute_resume);
     return g_test_run();

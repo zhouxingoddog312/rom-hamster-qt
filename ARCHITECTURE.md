@@ -605,7 +605,7 @@ typedef struct {
 必须保持的判定规则（验收项）：
 
 - **分类优先级链**（classify）：压缩包 → 通用补丁（`.ips/.bps/.ups/.ppf/.xdelta/.xdelta3/.patch/.ips32`）→ 平台二义后缀 → 平台专属补丁 → ROM 本体（且当扩展名同时是媒体类型时，用 `dual_role_kind` 判真实内容）→ 媒体/说明。**必须先判真实内容再判 ROM**；否则 `.jpg` 会被当 videopac ROM、`.md` 会被当 megadrive ROM。
-- **压缩包六级分流**：PSV 整库（按 `sce_sys/`、`PCSH*` 路径特征识别，整体入库不解压）→ 纯补丁包 → 街机 ZIP（按 `[arcade_rom_suffixes]` 判定多文件）→ 二义性包 → 单 ROM 包 → 混合包。分流只依据条目名，不读内容；PSV/街机/单 ROM 三类按整包入库（`rom_format` 记外层容器），纯补丁/二义/混合三类只计数并留给 UI 决策，不静默当 ROM。
+- **压缩包六级分流**：PSV 整库（按 `sce_sys/`、`PCSH*` 路径特征识别，整体入库不解压）→ 纯补丁包 → 街机 ZIP（按 `[arcade_rom_suffixes]` 判定多文件）→ 二义性包 → 单 ROM 包 → 混合包。分流只依据条目名，不读内容；PSV/街机/单 ROM 三类按整包入库（`rom_format` 记外层容器）；纯补丁/二义/混合三类都计数并生成待决策条目，纯补丁包由 UI 指定已有游戏，后两者由 UI 指定平台，均不静默当 ROM。
 - **平台判定**：扩展名唯一命中 → 直接用；多平台命中 → 走 `ui->choose`；目录名反查走 `aliases`（`resolve_platform_dir`）。
 - **媒体归属**：孤立媒体按核心名归一后做相似度匹配，阈值取配置 `duplicate_check_threshold`（默认 70）。
 - **目录命名**：`sanitize_dirname` 规则固定，保证库内文件布局稳定；Windows 额外处理保留名（`CON`/`PRN`/`AUX`/`NUL`/`COM1`…）、结尾点与空格。见 §15。
@@ -1406,12 +1406,13 @@ Windows **19/19（95 用例）**。M2 遗留的纯补丁/混合/二义包交互�
   合成图 / 说明 / 补丁）；图片经 `QThreadPool` 解码，磁盘缩略图缓存键为
   `路径+mtime+尺寸`（`QStandardPaths::CacheLocation/thumbs`）；视频与非图片用
   `QDesktopServices` 交外部播放器；说明原文用只读 `QPlainTextEdit`。
-- 导入：拖拽与菜单共用两阶段管线。预扫描在 `ImportScanThread`，结束后对平台未定
-  条目逐条选择平台（含二义包、混装包与顶层街机 ZIP；按首个 ROM 的后缀给出候选，
-  无候选时列出全平台；不指定则执行时跳过），再弹出「将导入 N 游戏 / M 媒体 / K 补丁 /
-  跳过 J（附原因）」确认框；执行在
-  `ImportExecThread`（独立 `store_open` 连接、零交互、`RhImportExecOptions`
-  的进度/取消回调），`QProgressDialog` 支持取消，作业记录写入 `jobs/job_items`。
+- 导入：拖拽与菜单共用两阶段管线。预扫描在 `ImportScanThread`，结束后在主线程处理
+  待决策条目：平台未定项逐条选择平台（含二义包、混装包与顶层街机 ZIP；按首个 ROM
+  的后缀给出候选，无候选时列出全平台；不指定则执行时跳过）；纯补丁包可按名称、平台
+  或目录搜索并归属已有游戏，未归属项跳过且不计入可导入数。确认框区分新建游戏、
+  纯补丁包、媒体与补丁；执行在 `ImportExecThread`（独立 `store_open` 连接、零交互、
+  `RhImportExecOptions` 的进度/取消回调），`QProgressDialog` 支持取消，作业记录写入
+  `jobs/job_items`。
 - 生命周期：首启 `QFileDialog::getExistingDirectory` 选库根目录，
   库固定为 `<ROM_ROOT>/romhamster.db` 并记入 `QSettings`；`QLocalServer` 单实例，
   第二次启动转交参数并激活已有窗口；启动后异步版本检查（3 s 超时、失败静默、
@@ -1421,6 +1422,11 @@ Windows **19/19（95 用例）**。M2 遗留的纯补丁/混合/二义包交互�
   由前端拿到计划后重算 `target_exists`，避免把来源目录当成库根；
   `rh_import_entry_assign_platform()` 在逐条指定平台后重建 `game_dir` 并按库根目录
   重算目标冲突。
+- 补丁导入（2026-11-21）：散补丁与纯补丁包内直接识别出的补丁成员统一落到
+  `<game>/patcher/`（保留包内相对路径）；纯补丁包忽略非补丁成员，不递归展开嵌套
+  压缩包，目标冲突时整包跳过。`rh_import_entry_assign_patch_target()` 在交互时校验
+  已有游戏，执行时再次校验；执行以同一事务追加媒体、更新补丁类型与作业状态，
+  文件复制失败时回滚。
 
 验收对照：
 
@@ -1433,14 +1439,12 @@ Windows **19/19（95 用例）**。M2 遗留的纯补丁/混合/二义包交互�
 | 断网时版本检查静默且不阻塞启动 | 已完成 | `setTransferTimeout(3000)`，错误分支直接返回；默认 `RH_UPDATE_CHECK_URL` 为空时跳过 |
 | 视频默认外部播放器 | 已完成 | `QDesktopServices::openUrl`；Multimedia 仍为可选构建 |
 
-四组构建（Linux/Windows × CLI/GUI）通过，0 warning；`ctest` Linux **21/21（100 用例）**、
-Windows **19/19（96 用例）**。本机 Windows 源码路径含中文，Qt 6.12 的 `moc`
+四组构建（Linux/Windows × CLI/GUI）通过，0 warning；`ctest` Linux **21/21（101 用例）**、
+Windows **19/19（97 用例）**。本机 Windows 源码路径含中文，Qt 6.12 的 `moc`
 无法在非 ASCII 绝对路径下写输出，验证时用 ASCII 目录联接（junction）映射后构建；
 CI 的仓库路径为 ASCII，不受影响。
 
-未结项：二义包、混装包与顶层街机 ZIP 已支持预扫描后逐条指定平台；纯补丁包需要
-归属到已有游戏，其交互仍未做，当前只按原因计数并跳过；§14.1 的启动/滚动/内存指标
-需在参考机型上人工记录，本轮未测。
+未结项：§14.1 的启动/滚动/内存指标需在参考机型上人工记录，本轮未测。
 
 ### 14.1 M4 性能验收（量化）
 

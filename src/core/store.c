@@ -632,6 +632,32 @@ RhErr store_game_update(RhStore *store, const RhGame *game)
     return rc == SQLITE_DONE ? RH_OK : RH_ERR_DB;
 }
 
+RhErr store_game_append_media(RhStore *store, const RhGame *game,
+                              const GPtrArray *media)
+{
+    RhErr err = ensure_writable(store);
+    if (err != RH_OK)
+        return err;
+    if (game == NULL || game->id == NULL || media == NULL)
+        return RH_ERR_INVALID;
+
+    gboolean own_tx = !store->in_tx;
+    if (own_tx && (err = store_begin(store)) != RH_OK)
+        return err;
+
+    err = insert_media(store, game->id, media);
+    if (err == RH_OK)
+        err = store_game_update(store, game);
+
+    if (own_tx) {
+        if (err == RH_OK)
+            err = store_commit(store);
+        else
+            store_rollback(store);
+    }
+    return err;
+}
+
 RhErr store_game_delete(RhStore *store, const char *id)
 {
     RhErr err = ensure_writable(store);

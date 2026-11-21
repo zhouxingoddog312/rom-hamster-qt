@@ -5,6 +5,8 @@
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QDesktopServices>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QDragEnterEvent>
 #include <QDropEvent>
@@ -21,11 +23,13 @@
 #include <QMessageBox>
 #include <QMimeData>
 #include <QProgressDialog>
+#include <QPushButton>
 #include <QStatusBar>
 #include <QTableView>
 #include <QTimer>
 #include <QToolBar>
 #include <QUrl>
+#include <QVBoxLayout>
 
 #include <QApplication>
 
@@ -341,6 +345,58 @@ void MainWindow::closeEvent(QCloseEvent *event)
     event->accept();
 }
 
+static QString choosePatchTarget(QWidget *parent, const GPtrArray *games,
+                                 const QString &entryName, const QString &source)
+{
+    if (games == nullptr || games->len == 0)
+        return QString();
+
+    QDialog dialog(parent);
+    dialog.setWindowTitle(QStringLiteral("指定纯补丁包归属"));
+    dialog.resize(560, 220);
+    QVBoxLayout *layout = new QVBoxLayout(&dialog);
+    layout->addWidget(new QLabel(
+        QStringLiteral("补丁包：%1\n来源目录：%2\n请选择要追加补丁的已有游戏。")
+            .arg(entryName, QDir::toNativeSeparators(source)), &dialog));
+
+    QLineEdit *search = new QLineEdit(&dialog);
+    search->setPlaceholderText(QStringLiteral("按游戏名、平台或目录筛选"));
+    layout->addWidget(search);
+    QComboBox *choices = new QComboBox(&dialog);
+    layout->addWidget(choices);
+
+    QDialogButtonBox *buttons = new QDialogButtonBox(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("归属到此游戏"));
+    buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("不归属"));
+    layout->addWidget(buttons);
+
+    const auto refill = [games, choices, buttons, search]() {
+        choices->clear();
+        const QString keyword = search->text().trimmed();
+        for (guint i = 0; i < games->len; i++) {
+            const RhGame *game = static_cast<const RhGame *>(g_ptr_array_index(games, i));
+            const QString name = QString::fromUtf8(game->name);
+            const QString platform = QString::fromUtf8(game->platform);
+            const QString dir = QString::fromUtf8(game->dir_path);
+            if (!keyword.isEmpty() && !name.contains(keyword, Qt::CaseInsensitive)
+                && !platform.contains(keyword, Qt::CaseInsensitive)
+                && !dir.contains(keyword, Qt::CaseInsensitive))
+                continue;
+            choices->addItem(QStringLiteral("%1 [%2] — %3").arg(name, platform, dir),
+                             QString::fromUtf8(game->id));
+        }
+        buttons->button(QDialogButtonBox::Ok)->setEnabled(choices->count() > 0);
+    };
+    QObject::connect(search, &QLineEdit::textChanged, &dialog, refill);
+    QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    refill();
+
+    return dialog.exec() == QDialog::Accepted ? choices->currentData().toString()
+                                              : QString();
+}
+
 void MainWindow::startImport(const QStringList &directories)
 {
     if (m_readOnly) {
@@ -412,6 +468,7 @@ void MainWindow::startImport(const QStringList &directories)
         guint skippedUnknown = 0;
         guint skippedMedia = 0;
         guint patchArchives = 0;
+        guint unassignedPatchArchives = 0;
         guint mixedArchives = 0;
         guint ambiguousArchives = 0;
         guint pendingArchives = 0;
@@ -439,7 +496,23 @@ void MainWindow::startImport(const QStringList &directories)
             escapedNames += result.plan->escaped_names;
         }
 
-        /* 所有平台询问都集中在预扫描后的主线程；执行线程保持零交互。 */
+        GPtrArray *patchTargets = nullptr;
+        if (patchArchives > 0) {
+            RhGameFilter filter = {0};
+            filter.order_by = "name";
+            filter.limit = -1;
+            RhErr targetErr = RH_OK;
+            patchTargets = store_games_list(m_store, &filter, &targetErr);
+            if (targetErr != RH_OK)
+                errors.append(QStringLiteral("读取补丁归属游戏列表失败：%1")
+                                  .arg(QString::fromUtf8(rh_err_str(targetErr))));
+            if (patchTargets != nullptr && patchTargets->len == 0)
+                QMessageBox::information(
+                    this, QStringLiteral("纯补丁包归属"),
+                    QStringLiteral("纯补丁包只能归属到已有游戏；当前库为空，这些包将跳过。"));
+        }
+
+        /* 所有平台和归属询问都集中在主线程；执行线程保持零交互。 */
         const QByteArray rootUtf8 = m_root.toUtf8();
         for (const ImportSourcePlan &result : results) {
             if (result.plan == nullptr)
@@ -449,7 +522,15 @@ void MainWindow::startImport(const QStringList &directories)
                 RhImportPlanEntry *entry = static_cast<RhImportPlanEntry *>(
                     g_ptr_array_index(result.plan->entries, i));
 
-                if (entry->platform == nullptr) {
+                if (entry->is_patch_bundle) {
+                    const QString gameId = choosePatchTarget(
+                        this, patchTargets, QString::fromUtf8(entry->name), result.source);
+                    if (!gameId.isEmpty()) {
+                        const QByteArray idUtf8 = gameId.toUtf8();
+                        rh_import_entry_assign_patch_target(entry, m_store,
+                                                            idUtf8.constData());
+                    }
+                } else if (entry->platform == nullptr) {
                     GPtrArray *found = entry->roms->len > 0
                         ? rh_platform_candidates_for_file(
                               m_rules,
@@ -488,7 +569,10 @@ void MainWindow::startImport(const QStringList &directories)
 
                 mediaCount += static_cast<int>(entry->media->len);
                 patchCount += static_cast<int>(entry->patches->len);
-                if (entry->platform == nullptr) {
+                if (entry->is_patch_bundle) {
+                    if (entry->target_game_id == nullptr)
+                        unassignedPatchArchives++;
+                } else if (entry->platform == nullptr) {
                     ambiguousEntries++;
                     if (entry->roms->len > 0
                         && rh_platform_is_archive(
@@ -500,19 +584,29 @@ void MainWindow::startImport(const QStringList &directories)
                     existingTargets++;
             }
         }
+        if (patchTargets != nullptr)
+            g_ptr_array_unref(patchTargets);
+
+        /* 未指定平台或归属的条目执行时跳过，不计入确认数量。 */
+        const int importable = entries - ambiguousEntries
+                             - static_cast<int>(unassignedPatchArchives);
+        const int assignedPatchArchives = static_cast<int>(patchArchives)
+                                        - static_cast<int>(unassignedPatchArchives);
+        const int newGames = importable - assignedPatchArchives;
 
         const QString detailText =
             QStringLiteral("扫描文件：%1\n"
-                           "将导入游戏：%2\n"
+                           "本次导入条目：%2（新建游戏 %15，纯补丁包 %16）\n"
                            "其中媒体文件：%3，补丁文件：%4\n"
-                           "跳过：未知类型 %5，顶层媒体 %6，纯补丁包 %7\n"
+                           "跳过：未知类型 %5，顶层媒体 %6\n"
+                           "纯补丁包：共 %7，未归属 %17（执行时跳过）\n"
                            "待定平台压缩包：混装 %8，二义 %9"
                            "（其中未指定 %10，执行时跳过）\n"
                            "平台未定（执行时跳过）：%11\n"
                            "目标目录已存在（执行时跳过）：%12\n"
                            "编码推测名：%13，转义名：%14")
                 .arg(filesScanned)
-                .arg(entries)
+                .arg(importable)
                 .arg(mediaCount)
                 .arg(patchCount)
                 .arg(skippedUnknown)
@@ -524,10 +618,10 @@ void MainWindow::startImport(const QStringList &directories)
                 .arg(ambiguousEntries)
                 .arg(existingTargets)
                 .arg(guessedNames)
-                .arg(escapedNames);
-
-        /* 未定平台的条目执行时跳过，确认框只统计真正会落库的条目。 */
-        const int importable = entries - ambiguousEntries;
+                .arg(escapedNames)
+                .arg(newGames)
+                .arg(assignedPatchArchives)
+                .arg(unassignedPatchArchives);
 
         if (importable == 0) {
             rh_import_plans_free(plans);
@@ -538,7 +632,7 @@ void MainWindow::startImport(const QStringList &directories)
             box.setWindowTitle(QStringLiteral("导入"));
             box.setText(entries == 0
                 ? QStringLiteral("没有可导入的条目。")
-                : QStringLiteral("%1 个条目均未确定平台，执行时都会跳过。").arg(entries));
+                : QStringLiteral("%1 个条目均未满足导入条件，执行时都会跳过。").arg(entries));
             box.setDetailedText(detailText +
                                 (errors.isEmpty()
                                      ? QString()
@@ -550,7 +644,8 @@ void MainWindow::startImport(const QStringList &directories)
         QMessageBox confirm(this);
         confirm.setIcon(QMessageBox::Question);
         confirm.setWindowTitle(QStringLiteral("确认导入"));
-        confirm.setText(QStringLiteral("将导入 %1 个游戏，是否继续？").arg(importable));
+        confirm.setText(QStringLiteral("将处理 %1 个导入条目（新建游戏 %2，纯补丁包 %3），是否继续？")
+                            .arg(importable).arg(newGames).arg(assignedPatchArchives));
         confirm.setDetailedText(detailText);
         confirm.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
         confirm.setDefaultButton(QMessageBox::Yes);

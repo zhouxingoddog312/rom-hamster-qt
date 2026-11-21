@@ -34,6 +34,7 @@ void rh_import_entry_free(RhImportPlanEntry *entry)
     g_free(entry->platform);
     g_free(entry->name);
     g_free(entry->game_dir);
+    g_free(entry->target_game_id);
     g_free(entry->rom_format);
     g_ptr_array_free(entry->roms, TRUE);
     g_ptr_array_free(entry->roms_raw, TRUE);
@@ -329,6 +330,36 @@ static void add_single_entry(RhImportPlan *plan, const RhPlatformRules *rules,
     g_ptr_array_add(plan->entries, entry);
 }
 
+static void add_patch_bundle_entry(RhImportPlan *plan,
+                                   const RhPlatformRules *rules,
+                                   RhFName *item,
+                                   const RhArchiveList *list,
+                                   const gchar *rom_format)
+{
+    RhImportPlanEntry *entry = entry_new("", NULL, item->display);
+    entry->is_patch_bundle = TRUE;
+    g_ptr_array_add(entry->roms, g_strdup(item->display));
+    g_ptr_array_add(entry->roms_raw, g_bytes_ref(item->raw));
+    if (rom_format != NULL) {
+        g_free(entry->rom_format);
+        entry->rom_format = g_strdup(rom_format);
+    }
+
+    for (guint i = 0; i < list->entries->len; i++) {
+        RhArchiveEntry *archived = g_ptr_array_index(list->entries, i);
+        if (archived->is_dir)
+            continue;
+        RhClassifyResult *result = rh_classify_file(rules, archived->pathname);
+        if (result->kind == RH_CLASSIFY_PATCH) {
+            g_ptr_array_add(entry->patches, g_strdup(archived->pathname));
+            g_ptr_array_add(entry->patches_raw,
+                            g_bytes_ref(archived->raw_pathname));
+        }
+        rh_classify_result_free(result);
+    }
+    g_ptr_array_add(plan->entries, entry);
+}
+
 RhImportPlan *rh_import_plan_scan(const RhPlatformRules *rules, const char *source_dir,
                                   RhErr *out_err)
 {
@@ -398,9 +429,12 @@ RhImportPlan *rh_import_plan_scan(const RhPlatformRules *rules, const char *sour
                             g_ptr_array_add(paths, g_strdup(e->pathname));
                     }
                     RhArchiveClassifyResult *ac = rh_classify_archive(rules, paths);
-                    if (ac->branch == RH_ARCHIVE_PATCHES)
+                    if (ac->branch == RH_ARCHIVE_PATCHES) {
                         plan->skipped_patch_archives++;
-                    else if (ac->branch == RH_ARCHIVE_MIXED) {
+                        gchar *format = container_format_for(item->display);
+                        add_patch_bundle_entry(plan, rules, item, list, format);
+                        g_free(format);
+                    } else if (ac->branch == RH_ARCHIVE_MIXED) {
                         plan->skipped_mixed_archives++;
                         add_single_entry(plan, rules, source_dir, item,
                                          TRUE, FALSE,
@@ -466,6 +500,33 @@ gboolean rh_import_entry_assign_platform(RhImportPlanEntry *entry,
     entry->game_dir = NULL;
     entry->target_exists = FALSE;
     fill_game_dir(entry, root);
+    return TRUE;
+}
+
+gboolean rh_import_entry_assign_patch_target(RhImportPlanEntry *entry,
+                                             RhStore *store,
+                                             const char *game_id)
+{
+    if (entry == NULL || !entry->is_patch_bundle || store == NULL ||
+        game_id == NULL || game_id[0] == '\0')
+        return FALSE;
+
+    RhErr err = RH_OK;
+    RhGame *game = store_game_get(store, game_id, &err);
+    if (game == NULL || err != RH_OK) {
+        rh_game_free(game);
+        return FALSE;
+    }
+
+    g_free(entry->target_game_id);
+    entry->target_game_id = g_strdup(game->id);
+    g_free(entry->platform);
+    entry->platform = g_strdup(game->platform);
+    g_free(entry->game_dir);
+    entry->game_dir = g_strdup(game->dir_path);
+    entry->target_exists = FALSE;
+    entry->ambiguous = FALSE;
+    rh_game_free(game);
     return TRUE;
 }
 
@@ -552,6 +613,21 @@ static gchar *target_path(const RhImportExecOptions *options,
                           const RhImportPlanEntry *entry, const gchar *filename)
 {
     return g_build_filename(options->root, entry->game_dir, filename, NULL);
+}
+
+static gchar *patch_relative_path(const gchar *filename)
+{
+    return g_strconcat("patcher/", filename, NULL);
+}
+
+static GBytes *patch_relative_raw(GBytes *raw)
+{
+    if (raw == NULL)
+        return NULL;
+    GBytes *dir = g_bytes_new_static("patcher", 7);
+    GBytes *joined = rh_fname_join_raw(dir, raw);
+    g_bytes_unref(dir);
+    return joined;
 }
 
 /*
@@ -676,6 +752,22 @@ static gchar *patch_type_for(const GPtrArray *patches)
     return g_strdup(generic ? "generic" : "platform");
 }
 
+static void merge_patch_type(RhGame *game, const GPtrArray *patches)
+{
+    gchar *incoming = patch_type_for(patches);
+    const gchar *current = game->patch_type != NULL ? game->patch_type : "";
+    if (current[0] == '\0') {
+        g_free(game->patch_type);
+        game->patch_type = incoming;
+        return;
+    }
+    if (incoming[0] != '\0' && g_strcmp0(current, incoming) != 0) {
+        g_free(game->patch_type);
+        game->patch_type = g_strdup("mixed");
+    }
+    g_free(incoming);
+}
+
 static gchar *m3u_name_for(const RhImportPlanEntry *entry)
 {
     gchar *safe = rh_str_sanitize_component(entry->name);
@@ -736,6 +828,24 @@ static void remember_file(EntryWrites *writes, const gchar *path)
     g_ptr_array_add(writes->files, g_strdup(path));
 }
 
+static void remove_tree(const gchar *path)
+{
+    GDir *dir = g_dir_open(path, 0, NULL);
+    if (dir != NULL) {
+        const gchar *name;
+        while ((name = g_dir_read_name(dir)) != NULL) {
+            gchar *child = g_build_filename(path, name, NULL);
+            if (g_file_test(child, G_FILE_TEST_IS_DIR))
+                remove_tree(child);
+            else
+                g_remove(child);
+            g_free(child);
+        }
+        g_dir_close(dir);
+    }
+    g_rmdir(path);
+}
+
 /* 作业条目在库里的稳定标识：目录条目用子目录名，顶层文件用文件名。 */
 static const gchar *entry_label(const RhImportPlanEntry *entry)
 {
@@ -761,11 +871,152 @@ typedef enum {
     ENTRY_FAILED
 } EntryOutcome;
 
+static EntryOutcome execute_patch_bundle(RhStore *store,
+                                         const RhImportPlanEntry *entry,
+                                         const RhImportExecOptions *options,
+                                         guint seq, gchar **out_message)
+{
+    if (entry->target_game_id == NULL) {
+        *out_message = g_strdup("纯补丁包未指定归属游戏");
+        return ENTRY_SKIPPED;
+    }
+    if (entry->roms->len != 1 || entry->patches->len == 0) {
+        *out_message = g_strdup("纯补丁包没有可导入的补丁");
+        return ENTRY_SKIPPED;
+    }
+
+    RhErr err = RH_OK;
+    RhGame *game = store_game_get(store, entry->target_game_id, &err);
+    if (err != RH_OK) {
+        *out_message = g_strdup(rh_err_str(err));
+        rh_game_free(game);
+        return ENTRY_FAILED;
+    }
+    if (game == NULL) {
+        *out_message = g_strdup("归属游戏不存在");
+        return ENTRY_FAILED;
+    }
+
+    /* 任一目标已存在就整包跳过，不覆盖已有补丁。 */
+    for (guint i = 0; i < entry->patches->len; i++) {
+        gchar *relative = patch_relative_path(g_ptr_array_index(entry->patches, i));
+        gchar *dst = g_build_filename(options->root, game->dir_path, relative, NULL);
+        g_free(relative);
+        gboolean exists = g_file_test(dst, G_FILE_TEST_EXISTS);
+        g_free(dst);
+        if (exists) {
+            *out_message = g_strdup("目标补丁文件已存在");
+            rh_game_free(game);
+            return ENTRY_SKIPPED;
+        }
+    }
+
+    gchar *archive = source_path(options->source_dir, entry,
+                                 g_ptr_array_index(entry->roms_raw, 0));
+    if (archive == NULL) {
+        *out_message = g_strdup("来源补丁包无法在当前平台定位");
+        rh_game_free(game);
+        return ENTRY_FAILED;
+    }
+
+    gchar *temp_dir = g_dir_make_tmp("romham-patches-XXXXXX", NULL);
+    if (temp_dir == NULL) {
+        *out_message = g_strdup("无法创建补丁临时目录");
+        g_free(archive);
+        rh_game_free(game);
+        return ENTRY_FAILED;
+    }
+
+    GPtrArray *media = g_ptr_array_new_with_free_func(
+        (GDestroyNotify)rh_media_file_free);
+    EntryWrites writes;
+    entry_writes_init(&writes);
+    gchar *error = NULL;
+
+    for (guint i = 0; i < entry->patches->len && err == RH_OK; i++) {
+        const gchar *display = g_ptr_array_index(entry->patches, i);
+        GBytes *raw = g_ptr_array_index(entry->patches_raw, i);
+        RhArchiveExtractOptions extract_options = {
+            .target_dir = temp_dir,
+            .entry = display
+        };
+        err = rh_archive_extract(archive, &extract_options, NULL);
+        if (err != RH_OK) {
+            error = g_strdup_printf("解压补丁 %s 失败：%s",
+                                    display, rh_err_str(err));
+            break;
+        }
+
+        gchar *src = g_build_filename(temp_dir, display, NULL);
+        gchar *relative = patch_relative_path(display);
+        gchar *dst = g_build_filename(options->root, game->dir_path, relative, NULL);
+        gchar *parent = g_path_get_dirname(dst);
+        ensure_dir(parent, &writes);
+        g_free(parent);
+
+        guint32 crc = 0;
+        gint64 size = 0;
+        err = copy_one(src, dst, &crc, &size, &error);
+        g_free(src);
+        if (err == RH_OK) {
+            remember_file(&writes, dst);
+            RhMediaFile *patch = rh_media_file_new();
+            patch->kind = g_strdup("patcher");
+            patch->filename = g_strdup(relative);
+            patch->filename_raw = patch_relative_raw(raw);
+            patch->has_size = TRUE;
+            patch->size = size;
+            patch->sort = (gint)i;
+            g_ptr_array_add(media, patch);
+        }
+        g_free(relative);
+        g_free(dst);
+    }
+
+    remove_tree(temp_dir);
+    g_free(temp_dir);
+    g_free(archive);
+
+    if (err == RH_OK) {
+        merge_patch_type(game, entry->patches);
+        err = store_begin(store);
+        if (err == RH_OK)
+            err = store_game_append_media(store, game, media);
+        if (err == RH_OK && options->job_id > 0)
+            err = store_job_item_set(store, options->job_id, (int)seq,
+                                     entry_label(entry), "import",
+                                     entry->platform, game->id, "imported", NULL);
+        if (err == RH_OK)
+            err = store_commit(store);
+        else
+            store_rollback(store);
+    }
+
+    if (err != RH_OK) {
+        entry_writes_free(&writes, TRUE);
+        if (error == NULL)
+            error = g_strdup(rh_err_str(err));
+        *out_message = error;
+        g_ptr_array_free(media, TRUE);
+        rh_game_free(game);
+        return ENTRY_FAILED;
+    }
+
+    entry_writes_free(&writes, FALSE);
+    g_ptr_array_free(media, TRUE);
+    rh_game_free(game);
+    *out_message = NULL;
+    return ENTRY_IMPORTED;
+}
+
 static EntryOutcome execute_entry(RhStore *store, const RhPlatformRules *rules,
                                   const RhImportPlanEntry *entry,
                                   const RhImportExecOptions *options,
                                   guint seq, gchar **out_message)
 {
+    if (entry->is_patch_bundle)
+        return execute_patch_bundle(store, entry, options, seq, out_message);
+
     if (entry->platform == NULL || entry->game_dir == NULL) {
         *out_message = g_strdup("平台未确定");
         return ENTRY_SKIPPED;
@@ -815,7 +1066,9 @@ static EntryOutcome execute_entry(RhStore *store, const RhPlatformRules *rules,
         }
     }
     for (guint i = 0; i < entry->patches->len; i++) {
-        gchar *dst = target_path(options, entry, g_ptr_array_index(entry->patches, i));
+        gchar *relative = patch_relative_path(g_ptr_array_index(entry->patches, i));
+        gchar *dst = target_path(options, entry, relative);
+        g_free(relative);
         gboolean exists = g_file_test(dst, G_FILE_TEST_EXISTS);
         g_free(dst);
         if (exists) {
@@ -952,7 +1205,12 @@ static EntryOutcome execute_entry(RhStore *store, const RhPlatformRules *rules,
             error = g_strdup("来源补丁文件名无法定位");
             break;
         }
-        gchar *dst = target_path(options, entry, display);
+        gchar *relative = patch_relative_path(display);
+        gchar *dst = target_path(options, entry, relative);
+        gchar *parent = g_path_get_dirname(dst);
+        ensure_dir(parent, &writes);
+        g_free(parent);
+
         guint32 crc = 0;
         gint64 size = 0;
         err = copy_one(src, dst, &crc, &size, &error);
@@ -961,13 +1219,14 @@ static EntryOutcome execute_entry(RhStore *store, const RhPlatformRules *rules,
             remember_file(&writes, dst);
             RhMediaFile *patch = rh_media_file_new();
             patch->kind = g_strdup("patcher");
-            patch->filename = g_strdup(display);
-            patch->filename_raw = raw != NULL ? g_bytes_ref(raw) : NULL;
+            patch->filename = g_strdup(relative);
+            patch->filename_raw = patch_relative_raw(raw);
             patch->has_size = TRUE;
             patch->size = size;
             patch->sort = (gint)i;
             g_ptr_array_add(media, patch);
         }
+        g_free(relative);
         g_free(dst);
     }
 

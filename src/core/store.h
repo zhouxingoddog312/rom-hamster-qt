@@ -76,6 +76,9 @@ RhErr store_game_insert(RhStore *store, const RhGame *game,
                         const GPtrArray *tags);  /* gchar*，可为 NULL */
 
 RhErr store_game_update(RhStore *store, const RhGame *game);
+/* 追加媒体并更新游戏元数据；两件事在同一事务中完成。 */
+RhErr store_game_append_media(RhStore *store, const RhGame *game,
+                              const GPtrArray *media);
 RhErr store_game_delete(RhStore *store, const char *id);
 gboolean store_game_id_exists(RhStore *store, const char *id, RhErr *out_err);
 

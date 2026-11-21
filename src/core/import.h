@@ -38,6 +38,8 @@ typedef struct {
     gboolean   ambiguous;         /* 平台无法唯一确定 */
     gboolean   target_exists;     /* 目标目录已存在（只读探测） */
     gboolean   is_arcade;         /* 街机 ZIP：一个包就是一个游戏 */
+    gboolean   is_patch_bundle;   /* 纯补丁包：roms 保存外层包，patches 保存包内补丁 */
+    gchar     *target_game_id;    /* 纯补丁包归属的已有游戏 ID，未指定为 NULL */
     gchar     *rom_format;        /* raw/zip/7z；归档条目按外层容器填写 */
 } RhImportPlanEntry;
 
@@ -48,7 +50,7 @@ typedef struct {
     guint      skipped_media;
     guint      guessed_names;  /* 按 GB18030 推测成功的名字数 */
     guint      escaped_names;  /* 无法解码、只能转义的名字数 */
-    guint      skipped_patch_archives;    /* 纯补丁包：需要归属游戏，暂不导入 */
+    guint      skipped_patch_archives;    /* 纯补丁包：预扫描发现数，同时生成待归属条目 */
     guint      skipped_mixed_archives;    /* 混装包：预扫描发现数，同时生成待选条目 */
     guint      skipped_ambiguous_archives;/* 二义包：预扫描发现数，同时生成待选条目 */
 } RhImportPlan;
@@ -70,6 +72,10 @@ void rh_import_plan_set_root(RhImportPlan *plan, const char *root);
 gboolean rh_import_entry_assign_platform(RhImportPlanEntry *entry,
                                          const char *platform,
                                          const char *root);
+/* 为纯补丁包指定已有游戏；立即校验目标，执行时还会再次校验。 */
+gboolean rh_import_entry_assign_patch_target(RhImportPlanEntry *entry,
+                                             RhStore *store,
+                                             const char *game_id);
 void rh_import_plan_free(RhImportPlan *plan);
 
 /* ---------------------------------------------------------------------------
