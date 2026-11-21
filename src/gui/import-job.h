@@ -52,7 +52,8 @@ public:
     ImportExecThread(const RhPlatformRules *rules, const QString &dbPath,
                      const QString &root, const QStringList &sources,
                      const QVector<RhImportPlan *> &plans, gint64 jobId,
-                     bool matchDat, bool generateM3u, QObject *parent = nullptr);
+                     bool matchDat, bool generateM3u,
+                     RhImportNameMode nameMode, QObject *parent = nullptr);
     ~ImportExecThread() override;
 
     void cancel() { m_cancel.store(true); }
@@ -81,6 +82,7 @@ private:
     gint64 m_jobId;
     bool m_matchDat;
     bool m_generateM3u;
+    RhImportNameMode m_nameMode;
 
     RhStore *m_store = nullptr;
     std::atomic<bool> m_cancel{false};

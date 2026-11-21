@@ -657,6 +657,10 @@ void MainWindow::startImport(const QStringList &directories)
         confirm.setWindowTitle(tr("Confirm Import"));
         confirm.setText(tr("%1 import entries will be processed (new games %2, patch-only archives %3). Continue?")
                             .arg(importable).arg(newGames).arg(assignedPatchArchives));
+        QCheckBox *datNames = new QCheckBox(
+            tr("Use DAT standard file names when matched (recommended)"), &confirm);
+        datNames->setChecked(true);
+        confirm.setCheckBox(datNames);
         confirm.setDetailedText(detailText);
         confirm.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
         confirm.setDefaultButton(QMessageBox::Yes);
@@ -677,7 +681,9 @@ void MainWindow::startImport(const QStringList &directories)
 
         ImportExecThread *exec = new ImportExecThread(
             m_rules, m_dbPath, m_root, sources, plans,
-            jobId, true, true, this);
+            jobId, true, true,
+            datNames->isChecked() ? RH_IMPORT_NAMES_DAT : RH_IMPORT_NAMES_ORIGINAL,
+            this);
 
         QProgressDialog *progress = new QProgressDialog(
             tr("Importing…"), tr("Cancel"), 0, entries, this);

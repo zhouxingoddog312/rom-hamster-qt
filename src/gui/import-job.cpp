@@ -43,7 +43,8 @@ void ImportScanThread::run()
 ImportExecThread::ImportExecThread(const RhPlatformRules *rules, const QString &dbPath,
                                    const QString &root, const QStringList &sources,
                                    const QVector<RhImportPlan *> &plans, gint64 jobId,
-                                   bool matchDat, bool generateM3u, QObject *parent)
+                                   bool matchDat, bool generateM3u,
+                                   RhImportNameMode nameMode, QObject *parent)
     : QThread(parent),
       m_rules(rules),
       m_dbPath(dbPath),
@@ -52,7 +53,8 @@ ImportExecThread::ImportExecThread(const RhPlatformRules *rules, const QString &
       m_plans(plans),
       m_jobId(jobId),
       m_matchDat(matchDat),
-      m_generateM3u(generateM3u)
+      m_generateM3u(generateM3u),
+      m_nameMode(nameMode)
 {
     for (const RhImportPlan *plan : m_plans) {
         if (plan != nullptr)
@@ -111,6 +113,7 @@ void ImportExecThread::run()
         options.source_dir = sourceDir;
         options.match_dat = m_matchDat ? TRUE : FALSE;
         options.generate_m3u = m_generateM3u ? TRUE : FALSE;
+        options.name_mode = m_nameMode;
         options.job_id = m_jobId;
         options.cancel = cancelCallback;
         options.cancel_data = this;

@@ -49,6 +49,7 @@ typedef struct {
     gchar   *md5;
     gchar   *sha1;
     gint64   dat_id;        /* 0 表示 NULL：本条 ROM 的匹配来自哪个 DAT */
+    gchar   *dat_name;      /* 命中的 DAT 标准 ROM 名（v5），未匹配为 NULL */
     gint     sort;
 } RhRomFile;
 

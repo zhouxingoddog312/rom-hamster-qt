@@ -812,6 +812,8 @@ static void match_rom(RhStore *store, const RhImportPlanEntry *entry,
     if (kind == RH_DAT_MATCH_UNIQUE && matches != NULL && matches->len == 1) {
         RhDatMatch *match = g_ptr_array_index(matches, 0);
         rom->dat_id = match->dat_id;
+        if (match->entry->rom_name != NULL)
+            rom->dat_name = g_strdup(match->entry->rom_name);
         if (match->entry->sha1 != NULL)
             rom->sha1 = g_strdup(match->entry->sha1);
         if (match->entry->md5 != NULL)
@@ -1012,8 +1014,12 @@ static EntryOutcome execute_patch_bundle(RhStore *store,
 static EntryOutcome execute_entry(RhStore *store, const RhPlatformRules *rules,
                                   const RhImportPlanEntry *entry,
                                   const RhImportExecOptions *options,
-                                  guint seq, gchar **out_message)
+                                  guint seq, guint *out_renamed,
+                                  gchar **out_message)
 {
+    if (out_renamed != NULL)
+        *out_renamed = 0;
+
     if (entry->is_patch_bundle)
         return execute_patch_bundle(store, entry, options, seq, out_message);
 
@@ -1160,6 +1166,35 @@ static EntryOutcome execute_entry(RhStore *store, const RhPlatformRules *rules,
             rom->disc_no = disc;
         if (options->match_dat && !name_is_archive(rules, display))
             match_rom(store, entry, rom, game, crc, size);
+
+        /* 命名策略：命中 DAT 且要求标准名时，在同一游戏目录内改名。
+         * 目标已存在或改名失败就保留来源名，绝不覆盖其他文件。 */
+        if (options->name_mode == RH_IMPORT_NAMES_DAT &&
+            rom->dat_name != NULL && rom->dat_name[0] != '\0' &&
+            g_strcmp0(rom->dat_name, rom->filename) != 0) {
+            gchar *safe = rh_str_sanitize_component(rom->dat_name);
+            if (safe != NULL && safe[0] != '\0' &&
+                strchr(safe, '/') == NULL && strchr(safe, '\\') == NULL) {
+                gchar *renamed_dst = target_path(options, entry, safe);
+                if (g_strcmp0(renamed_dst, dst) != 0 &&
+                    !g_file_test(renamed_dst, G_FILE_TEST_EXISTS) &&
+                    g_rename(dst, renamed_dst) == 0) {
+                    remember_file(&writes, renamed_dst);
+                    g_free(rom->filename);
+                    rom->filename = safe;
+                    safe = NULL;
+                    if (rom->filename_raw != NULL) {
+                        g_bytes_unref(rom->filename_raw);
+                        rom->filename_raw = NULL;
+                    }
+                    if (out_renamed != NULL)
+                        (*out_renamed)++;
+                }
+                g_free(renamed_dst);
+            }
+            g_free(safe);
+        }
+
         g_ptr_array_add(roms, rom);
         g_free(dst);
     }
@@ -1326,10 +1361,12 @@ RhErr rh_import_execute(RhStore *store, const RhPlatformRules *rules,
         }
 
         gchar *message = NULL;
+        guint renamed_this = 0;
         EntryOutcome outcome = execute_entry(store, rules, entry, options, i,
-                                             &message);
+                                             &renamed_this, &message);
         if (outcome == ENTRY_IMPORTED) {
             stats.imported++;
+            stats.renamed += renamed_this;
         } else if (outcome == ENTRY_SKIPPED) {
             stats.skipped++;
             mark_job_item(store, options, i, entry, "skipped", NULL, message);

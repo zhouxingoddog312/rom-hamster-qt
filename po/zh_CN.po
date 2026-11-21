@@ -10,7 +10,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: rom-hamster 0.1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-21 15:02+0800\n"
+"POT-Creation-Date: 2026-11-21 15:10+0800\n"
 "PO-Revision-Date: 2026-11-21 10:50+0800\n"
 "Last-Translator: Zhou Xin <zhouxin312@qq.com>\n"
 "Language-Team: Chinese (Simplified)\n"
@@ -80,7 +80,7 @@ msgid "Cannot open database %s: %s\n"
 msgstr "无法打开数据库 %s：%s\n"
 
 #: src/cli/cmd-query.c:33 src/cli/cmd-detail.c:30 src/cli/cmd-manage.c:39
-#: src/cli/cmd-manage.c:85 src/cli/cmd-manage.c:163 src/cli/cmd-export.c:20
+#: src/cli/cmd-manage.c:85 src/cli/cmd-manage.c:163 src/cli/cmd-export.c:21
 #: src/cli/cmd-dat.c:61 src/cli/cmd-dat.c:159 src/cli/cmd-dat.c:352
 msgid "Database file"
 msgstr "数据库文件"
@@ -170,7 +170,7 @@ msgid "- Search games"
 msgstr "- 检索游戏"
 
 #: src/cli/cmd-query.c:66 src/cli/cmd-detail.c:39 src/cli/cmd-manage.c:51
-#: src/cli/cmd-manage.c:105 src/cli/cmd-manage.c:172 src/cli/cmd-export.c:38
+#: src/cli/cmd-manage.c:105 src/cli/cmd-manage.c:172 src/cli/cmd-export.c:41
 #: src/cli/cmd-dat.c:78 src/cli/cmd-dat.c:168 src/cli/cmd-dat.c:261
 #: src/cli/cmd-dat.c:373
 #, c-format
@@ -447,56 +447,65 @@ msgstr ""
 "\n"
 "平台\t游戏\tROM\t字节\n"
 
-#: src/cli/cmd-export.c:22
+#: src/cli/cmd-export.c:23
 msgid "Front-end specification .conf"
 msgstr "前端规格 .conf"
 
-#: src/cli/cmd-export.c:23
+#: src/cli/cmd-export.c:24
 msgid "Output directory"
 msgstr "输出目录"
 
-#: src/cli/cmd-export.c:24
+#: src/cli/cmd-export.c:25
 msgid "Library root (copy ROMs/media)"
 msgstr "库根目录（复制 ROM/媒体）"
 
-#: src/cli/cmd-export.c:26
+#: src/cli/cmd-export.c:27
 msgid "platforms.conf (optional)"
 msgstr "platforms.conf（可选）"
 
-#: src/cli/cmd-export.c:27
+#: src/cli/cmd-export.c:29
+msgid "ROM file names: original, dat or display"
+msgstr "ROM 文件名: original（原名）、dat（DAT 标准名）、display（显示名）"
+
+#: src/cli/cmd-export.c:30
 msgid "Do not copy ROMs"
 msgstr "不复制 ROM"
 
-#: src/cli/cmd-export.c:28
+#: src/cli/cmd-export.c:31
 msgid "Do not copy media"
 msgstr "不复制媒体"
 
-#: src/cli/cmd-export.c:29
+#: src/cli/cmd-export.c:32
 msgid "Generate m3u for multi-disc games"
 msgstr "为多碟游戏生成 m3u"
 
-#: src/cli/cmd-export.c:33
+#: src/cli/cmd-export.c:36
 msgid "- Export a front-end manifest"
 msgstr "- 导出前端清单"
 
-#: src/cli/cmd-export.c:46
+#: src/cli/cmd-export.c:49
 msgid "Usage: rom-hamster export --frontend FILE --out DIR [--root DIR]"
 msgstr "用法: rom-hamster export --frontend FILE --out DIR [--root DIR]"
 
-#: src/cli/cmd-export.c:53
+#: src/cli/cmd-export.c:58
+#, c-format
+msgid "Unknown --names value: %s"
+msgstr "未知的 --names 取值: %s"
+
+#: src/cli/cmd-export.c:68
 msgid "Cannot load front-end specification"
 msgstr "无法加载前端规格"
 
-#: src/cli/cmd-export.c:65
+#: src/cli/cmd-export.c:80
 msgid "Failed to load platform rules"
 msgstr "平台规则加载失败"
 
-#: src/cli/cmd-export.c:99
+#: src/cli/cmd-export.c:115
 #, c-format
 msgid "Export failed: %s"
 msgstr "导出失败: %s"
 
-#: src/cli/cmd-export.c:104
+#: src/cli/cmd-export.c:120
 #, c-format
 msgid "Export complete: %u games, %u ROM files, %u media files, %u errors\n"
 msgstr "导出完成：游戏 %u，ROM %u，媒体 %u，错误 %u\n"

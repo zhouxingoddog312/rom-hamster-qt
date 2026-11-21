@@ -594,6 +594,11 @@ Errors:
         <translation>将处理 %1 个导入条目（新建游戏 %2，纯补丁包 %3），是否继续？</translation>
     </message>
     <message>
+        <location filename="../src/gui/window-main.cpp" line="661"/>
+        <source>Use DAT standard file names when matched (recommended)</source>
+        <translation>命中 DAT 时使用标准文件名（推荐）</translation>
+    </message>
+    <message>
         <location filename="../src/gui/window-main.cpp" line="665"/>
         <source>%1 source directories failed to scan; see details.</source>
         <translation>有 %1 个来源目录扫描失败，详见详情。</translation>

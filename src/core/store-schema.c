@@ -203,6 +203,20 @@ const char *const rh_schema_v4_sql[] = {
 const int rh_schema_v4_sql_count =
     (int)(sizeof(rh_schema_v4_sql) / sizeof(rh_schema_v4_sql[0]));
 
+/*
+ * v5：记录命中的 DAT 标准 ROM 名。
+ *
+ * 导入时若 CRC32 唯一命中 DAT，就把它写进这一列：既能作为「推荐文件名」
+ * 展示，也让导出的 --names dat 不必再回查哈希。未匹配的行保持 NULL，
+ * 老库升级后不需要重扫才能使用其他功能。
+ */
+const char *const rh_schema_v5_sql[] = {
+    "ALTER TABLE roms ADD COLUMN dat_name TEXT"
+};
+
+const int rh_schema_v5_sql_count =
+    (int)(sizeof(rh_schema_v5_sql) / sizeof(rh_schema_v5_sql[0]));
+
 const char *const rh_schema_fts_sql[] = {
     "CREATE VIRTUAL TABLE games_fts USING fts5("
     "  name, game_main_name, description,"

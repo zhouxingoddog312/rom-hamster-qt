@@ -72,6 +72,7 @@ void rh_rom_file_free(RhRomFile *rom)
     g_free(rom->crc32);
     g_free(rom->md5);
     g_free(rom->sha1);
+    g_free(rom->dat_name);
     g_free(rom);
 }
 

@@ -461,6 +461,7 @@ static void test_execute(void)
     g_assert_true(rom->has_size);
     g_assert_cmpint(rom->size, ==, 3);
     g_assert_cmpint(rom->dat_id, ==, dat_id);
+    g_assert_cmpstr(rom->dat_name, ==, "Tetris (World).gb");
     g_ptr_array_unref(roms);
 
     GPtrArray *media = store_media_for_game(store, game_id, NULL, &err);
@@ -498,6 +499,76 @@ static void test_execute(void)
 
     g_ptr_array_unref(games);
     g_free(game_id);
+    rh_import_plan_free(plan);
+    store_close(store);
+    rh_platform_rules_free(rules);
+    g_free(dat_path);
+    remove_tree(src);
+    remove_tree(lib);
+    g_free(src);
+    g_free(lib);
+}
+
+static void test_execute_dat_names(void)
+{
+    RhPlatformRules *rules = load();
+    gchar *src = g_dir_make_tmp("romham-src-XXXXXX", NULL);
+    gchar *lib = g_dir_make_tmp("romham-lib-XXXXXX", NULL);
+
+    write_file(src, "gb/Tetris.gb", "abc");
+    RhStore *store = open_store_at(lib);
+
+    gchar *rom_path = g_build_filename(src, "gb", "Tetris.gb", NULL);
+    guint32 crc = crc_of(rom_path);
+    g_free(rom_path);
+
+    gchar *dat_text = dat_text_for(crc, 3);
+    gchar *dat_path = g_build_filename(lib, "test.dat", NULL);
+    g_assert_true(g_file_set_contents(dat_path, dat_text, -1, NULL));
+    g_free(dat_text);
+
+    RhDatImportOptions dat_options = { .platform = "gb" };
+    RhDatImportStats dat_stats;
+    g_assert_cmpint(rh_dat_import(store, dat_path, &dat_options, &dat_stats),
+                    ==, RH_OK);
+    g_assert_cmpint(dat_stats.entry_count, ==, 1);
+
+    RhErr err = RH_OK;
+    RhImportPlan *plan = rh_import_plan_scan(rules, src, &err);
+    g_assert_cmpint(err, ==, RH_OK);
+    g_assert_cmpuint(plan->entries->len, ==, 1);
+
+    RhImportExecOptions options = {0};
+    options.root = lib;
+    options.source_dir = src;
+    options.match_dat = TRUE;
+    options.name_mode = RH_IMPORT_NAMES_DAT;
+    RhImportExecStats stats;
+    g_assert_cmpint(rh_import_execute(store, rules, plan, &options, &stats),
+                    ==, RH_OK);
+    g_assert_cmpuint(stats.imported, ==, 1);
+    g_assert_cmpuint(stats.renamed, ==, 1);
+
+    /* 来源名 Tetris.gb 被替换为 DAT 标准名 Tetris (World).gb。 */
+    gchar *renamed = g_build_filename(lib, "gb", "gb", "Tetris (World).gb", NULL);
+    g_assert_true(g_file_test(renamed, G_FILE_TEST_IS_REGULAR));
+    g_free(renamed);
+    gchar *original = g_build_filename(lib, "gb", "gb", "Tetris.gb", NULL);
+    g_assert_false(g_file_test(original, G_FILE_TEST_EXISTS));
+    g_free(original);
+
+    RhGameFilter filter = {0};
+    GPtrArray *games = store_games_list(store, &filter, &err);
+    g_assert_cmpuint(games->len, ==, 1);
+    RhGame *game = g_ptr_array_index(games, 0);
+    GPtrArray *roms = store_roms_for_game(store, game->id, &err);
+    g_assert_cmpuint(roms->len, ==, 1);
+    RhRomFile *rom = g_ptr_array_index(roms, 0);
+    g_assert_cmpstr(rom->filename, ==, "Tetris (World).gb");
+    g_assert_cmpstr(rom->dat_name, ==, "Tetris (World).gb");
+    g_ptr_array_unref(roms);
+    g_ptr_array_unref(games);
+
     rh_import_plan_free(plan);
     store_close(store);
     rh_platform_rules_free(rules);
@@ -1139,6 +1210,7 @@ int main(int argc, char **argv)
 #endif
     g_test_add_func("/import/wide-char-names", test_wide_char_names);
     g_test_add_func("/import/execute", test_execute);
+    g_test_add_func("/import/execute-dat-names", test_execute_dat_names);
     g_test_add_func("/import/execute-conflict", test_execute_conflict);
     g_test_add_func("/import/execute-rollback", test_execute_rollback);
     g_test_add_func("/import/execute-cancel", test_execute_cancel);

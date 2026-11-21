@@ -86,8 +86,15 @@ typedef struct {
     guint    imported;
     guint    skipped;      /* 平台未定、目标已存在等，不写库 */
     guint    failed;       /* 复制或写库失败，已回滚 */
+    guint    renamed;      /* 因 DAT 标准名而改名的 ROM 数 */
     gboolean cancelled;
 } RhImportExecStats;
+
+/* 导入时的文件名策略。DAT 模式只对唯一命中的 ROM 生效。 */
+typedef enum {
+    RH_IMPORT_NAMES_ORIGINAL = 0, /* 保留来源文件名（默认） */
+    RH_IMPORT_NAMES_DAT = 1       /* 命中 DAT 时改用标准 ROM 名 */
+} RhImportNameMode;
 
 typedef gboolean (*RhImportCancelFn)(gpointer user_data);
 typedef void (*RhImportExecProgressFn)(guint done, guint total,
@@ -98,6 +105,7 @@ typedef struct {
     const gchar *source_dir;  /* 预扫描时的来源根目录，UTF-8 */
     gboolean     match_dat;   /* TRUE：复制时算 CRC32 并查已导入的 DAT */
     gboolean     generate_m3u;/* TRUE：多碟游戏生成 <游戏名>.m3u */
+    RhImportNameMode name_mode; /* DAT 命中后是否改用标准名 */
     gint64       job_id;      /* >0：条目状态与游戏记录同事务写 job_items */
     RhImportCancelFn cancel;  /* 每个条目开始时检查，返回 TRUE 取消 */
     gpointer     cancel_data;

@@ -576,7 +576,7 @@ static void test_migrate_v3_to_v4(void)
     g_assert_cmpint(err, ==, RH_OK);
     g_assert_nonnull(store);
     g_assert_cmpint(store_schema_version(store), ==, RH_SCHEMA_VERSION);
-    g_assert_cmpint(store_schema_version(store), ==, 4);
+    g_assert_cmpint(store_schema_version(store), ==, 5);
     g_assert_false(store_is_read_only(store));
     store_close(store);
 

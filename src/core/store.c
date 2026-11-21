@@ -79,6 +79,14 @@ static RhErr apply_migrations(sqlite3 *db, int from)
         version = 4;
     }
 
+    if (version < 5) {
+        for (int i = 0; i < rh_schema_v5_sql_count; i++) {
+            if (exec_sql(db, rh_schema_v5_sql[i]) != RH_OK)
+                return RH_ERR_MIGRATE;
+        }
+        version = 5;
+    }
+
     return set_user_version(db, version);
 }
 
@@ -365,8 +373,8 @@ static RhErr insert_roms(RhStore *store, const char *game_id, const GPtrArray *r
     sqlite3_stmt *stmt = NULL;
     RhErr err = prepare(store->db,
                         "INSERT INTO roms (game_id, filename, disc_no, size,"
-                        " crc32, md5, sha1, sort, filename_raw, dat_id)"
-                        " VALUES (?,?,?,?,?,?,?,?,?,?);",
+                        " crc32, md5, sha1, sort, filename_raw, dat_id, dat_name)"
+                        " VALUES (?,?,?,?,?,?,?,?,?,?,?);",
                         &stmt);
     if (err != RH_OK)
         return err;
@@ -396,6 +404,7 @@ static RhErr insert_roms(RhStore *store, const char *game_id, const GPtrArray *r
             sqlite3_bind_int64(stmt, 10, rom->dat_id);
         else
             sqlite3_bind_null(stmt, 10);
+        bind_text(stmt, 11, rom->dat_name);
 
         if (sqlite3_step(stmt) != SQLITE_DONE) {
             g_log(RH_STORE_DOMAIN, G_LOG_LEVEL_WARNING, "写 roms 失败: %s",
@@ -791,7 +800,7 @@ GPtrArray *store_roms_for_game(RhStore *store, const char *id, RhErr *out_err)
     sqlite3_stmt *stmt = NULL;
     RhErr err = prepare(store->db,
                         "SELECT filename, disc_no, size, crc32, md5, sha1, sort,"
-                        " filename_raw, dat_id"
+                        " filename_raw, dat_id, dat_name"
                         " FROM roms WHERE game_id = ? ORDER BY sort, filename;",
                         &stmt);
     if (err != RH_OK) {
@@ -815,6 +824,7 @@ GPtrArray *store_roms_for_game(RhStore *store, const char *id, RhErr *out_err)
         rom->filename_raw = column_bytes(stmt, 7);
         rom->dat_id = sqlite3_column_type(stmt, 8) == SQLITE_NULL
                           ? 0 : sqlite3_column_int64(stmt, 8);
+        rom->dat_name = column_str(stmt, 9);
         g_ptr_array_add(roms, rom);
     }
     if (rc != SQLITE_DONE && out_err != NULL)
