@@ -168,6 +168,27 @@ RhErr store_dat_finish(RhStore *store, gint64 dat_id, const char *name,
 RhErr store_dat_abort(RhStore *store, gint64 dat_id);
 RhErr store_dat_count(RhStore *store, gint64 *out);
 
+/* 一条已导入 DAT 的元数据（dat list 使用）。字符串均由本结构持有。 */
+typedef struct {
+    gint64 id;
+    gchar *platform;
+    gchar *path;
+    gchar *name;
+    gchar *version;
+    gchar *encoding;
+    gchar *imported_at;
+    gint64 entry_count;
+    gint64 skipped;
+    gchar *file_sha1;
+} RhDatInfo;
+
+void rh_dat_info_free(RhDatInfo *info);
+
+/* 按 platform、name、path 升序列出全部已导入 DAT。
+ * 返回 GPtrArray<RhDatInfo*>（调用方 g_ptr_array_unref）；
+ * 空库返回空数组且 *out_err = RH_OK。 */
+GPtrArray *store_dat_list(RhStore *store, RhErr *out_err);
+
 /* 查 (platform, path) 已导入的 DAT 元数据，用于"内容未变则跳过重建"。
  * 不存在返回 RH_OK，三个出参保持 NULL/0。 */
 RhErr store_dat_lookup(RhStore *store, const char *platform, const char *path,

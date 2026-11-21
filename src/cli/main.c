@@ -19,6 +19,7 @@ int rh_cmd_delete(int argc, char **argv);
 int rh_cmd_edit(int argc, char **argv);
 int rh_cmd_stats(int argc, char **argv);
 int rh_cmd_export(int argc, char **argv);
+int rh_cmd_dat(int argc, char **argv);
 
 static void print_utf8(FILE *stream, const char *text);
 
@@ -34,6 +35,7 @@ static void print_help(const char *program)
           "  delete   Delete a game record (optionally its files)\n"
           "  stats    Library statistics\n"
           "  export   Export a manifest for a front-end\n"
+          "  dat      Import and inspect DAT indexes\n"
           "  help     Show this help\n"
           "  version  Show version information\n"
           "\n"
@@ -138,6 +140,8 @@ int main(int argc, char **argv)
         return rh_cmd_stats(sub_argc, sub_argv);
     if (strcmp(command, "export") == 0)
         return rh_cmd_export(sub_argc, sub_argv);
+    if (strcmp(command, "dat") == 0)
+        return rh_cmd_dat(sub_argc, sub_argv);
     if (strcmp(command, "help") == 0 || strcmp(command, "--help") == 0 ||
         strcmp(command, "-h") == 0) {
         print_help(argv[0]);

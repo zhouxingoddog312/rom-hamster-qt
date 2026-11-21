@@ -34,10 +34,6 @@
 #define RH_UPDATE_CHECK_URL ""
 #endif
 
-#ifndef RH_DATA_DIR
-#define RH_DATA_DIR ""
-#endif
-
 namespace {
 
 /*
@@ -55,27 +51,21 @@ QIcon applicationIcon()
     return icon;
 }
 
-/* 数据文件（platforms.conf）查找：环境变量 → 安装布局 → 源码树 */
+/* 数据文件（platforms.conf）查找：候选目录由核心统一提供（§10.2），
+ * 这里只负责拼文件名并检查是否存在。 */
 QString findDataFile(const QString &name)
 {
-    QStringList candidates;
-    const QString env = qEnvironmentVariable("ROM_HAMSTER_DATA_DIR");
-    if (!env.isEmpty())
-        candidates << QDir(env).filePath(name);
-    const QString appDir = QCoreApplication::applicationDirPath();
-    candidates << QDir(appDir + QStringLiteral("/../share/rom-hamster")).filePath(name)
-               << QDir(appDir + QStringLiteral("/share/rom-hamster")).filePath(name)
-               << QDir(appDir + QStringLiteral("/../../share/rom-hamster")).filePath(name)
-               << QDir(QString::fromUtf8(RH_DATA_DIR)).filePath(name)
-               << QDir(QStringLiteral("/usr/share/rom-hamster")).filePath(name);
-
-    for (const QString &candidate : candidates) {
-        if (candidate.isEmpty())
-            continue;
+    GPtrArray *dirs = rh_path_data_dir_candidates();
+    QString found;
+    for (guint i = 0; i < dirs->len && found.isEmpty(); i++) {
+        const char *dir = static_cast<const char *>(g_ptr_array_index(dirs, i));
+        const QString candidate =
+            QDir(QString::fromUtf8(dir)).filePath(name);
         if (QFileInfo::exists(candidate))
-            return QDir::cleanPath(candidate);
+            found = QDir::cleanPath(candidate);
     }
-    return QString();
+    g_ptr_array_free(dirs, TRUE);
+    return found;
 }
 
 QString singleInstanceName()

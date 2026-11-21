@@ -1737,6 +1737,65 @@ RhErr store_dat_count(RhStore *store, gint64 *out)
     return err;
 }
 
+void rh_dat_info_free(RhDatInfo *info)
+{
+    if (info == NULL)
+        return;
+    g_free(info->platform);
+    g_free(info->path);
+    g_free(info->name);
+    g_free(info->version);
+    g_free(info->encoding);
+    g_free(info->imported_at);
+    g_free(info->file_sha1);
+    g_free(info);
+}
+
+GPtrArray *store_dat_list(RhStore *store, RhErr *out_err)
+{
+    GPtrArray *list = g_ptr_array_new_with_free_func(
+        (GDestroyNotify)rh_dat_info_free);
+    if (out_err != NULL)
+        *out_err = RH_OK;
+    if (store == NULL) {
+        if (out_err != NULL)
+            *out_err = RH_ERR_INVALID;
+        return list;
+    }
+
+    sqlite3_stmt *stmt = NULL;
+    RhErr err = prepare(store->db,
+                        "SELECT id, platform, path, name, version, encoding,"
+                        " imported_at, entry_count, skipped, file_sha1"
+                        " FROM dats ORDER BY platform, name, path;",
+                        &stmt);
+    if (err != RH_OK) {
+        if (out_err != NULL)
+            *out_err = err;
+        return list;
+    }
+
+    int rc;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        RhDatInfo *info = g_new0(RhDatInfo, 1);
+        info->id = sqlite3_column_int64(stmt, 0);
+        info->platform = column_str(stmt, 1);
+        info->path = column_str(stmt, 2);
+        info->name = column_str(stmt, 3);
+        info->version = column_str(stmt, 4);
+        info->encoding = column_str(stmt, 5);
+        info->imported_at = column_str(stmt, 6);
+        info->entry_count = sqlite3_column_int64(stmt, 7);
+        info->skipped = sqlite3_column_int64(stmt, 8);
+        info->file_sha1 = column_str(stmt, 9);
+        g_ptr_array_add(list, info);
+    }
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE && out_err != NULL)
+        *out_err = RH_ERR_DB;
+    return list;
+}
+
 RhErr store_dat_lookup(RhStore *store, const char *platform, const char *path,
                        gchar **out_file_sha1, gint64 *out_id,
                        gint64 *out_entry_count)
