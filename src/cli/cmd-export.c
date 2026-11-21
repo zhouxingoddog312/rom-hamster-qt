@@ -10,6 +10,7 @@ static gchar *opt_frontend = NULL;
 static gchar *opt_out = NULL;
 static gchar *opt_root = NULL;
 static gchar *opt_platforms = NULL;
+static gchar *opt_names = NULL;
 static gboolean opt_no_roms = FALSE;
 static gboolean opt_no_media = FALSE;
 static gboolean opt_m3u = FALSE;
@@ -24,6 +25,8 @@ int rh_cmd_export(int argc, char **argv)
         { "root", 0, 0, G_OPTION_ARG_FILENAME, &opt_root, N_("Library root (copy ROMs/media)"), "DIR" },
         { "platforms", 0, 0, G_OPTION_ARG_FILENAME, &opt_platforms,
           N_("platforms.conf (optional)"), "FILE" },
+        { "names", 0, 0, G_OPTION_ARG_STRING, &opt_names,
+          N_("ROM file names: original, dat or display"), "MODE" },
         { "no-roms", 0, 0, G_OPTION_ARG_NONE, &opt_no_roms, N_("Do not copy ROMs"), NULL },
         { "no-media", 0, 0, G_OPTION_ARG_NONE, &opt_no_media, N_("Do not copy media"), NULL },
         { "m3u", 0, 0, G_OPTION_ARG_NONE, &opt_m3u, N_("Generate m3u for multi-disc games"), NULL },
@@ -44,6 +47,18 @@ int rh_cmd_export(int argc, char **argv)
 
     if (opt_frontend == NULL || opt_out == NULL)
         return rh_cli_error(_("Usage: rom-hamster export --frontend FILE --out DIR [--root DIR]"));
+
+    RhExportNameMode name_mode = RH_EXPORT_NAMES_ORIGINAL;
+    if (opt_names != NULL) {
+        if (g_ascii_strcasecmp(opt_names, "dat") == 0) {
+            name_mode = RH_EXPORT_NAMES_DAT;
+        } else if (g_ascii_strcasecmp(opt_names, "display") == 0) {
+            name_mode = RH_EXPORT_NAMES_DISPLAY;
+        } else if (g_ascii_strcasecmp(opt_names, "original") != 0) {
+            gchar *msg = g_strdup_printf(_("Unknown --names value: %s"), opt_names);
+            return rh_cli_error(msg);
+        }
+    }
 
     /* 先加载一次，把「文件:行号」错误直接展示给用户 */
     RhErr err = RH_OK;
@@ -87,6 +102,7 @@ int rh_cmd_export(int argc, char **argv)
         .copy_media = !opt_no_media && opt_root != NULL,
         .compress_roms = FALSE,
         .generate_m3u = opt_m3u,
+        .name_mode = name_mode,
     };
 
     RhExportStats stats;

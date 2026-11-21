@@ -73,6 +73,7 @@ static void seed_game(RhStore *store)
     GPtrArray *roms = g_ptr_array_new_with_free_func(rh_rom_file_free_func);
     RhRomFile *rom = rh_rom_file_new();
     rom->filename = g_strdup("Tetris.gb");
+    rom->dat_name = g_strdup("Tetris (World).gb");
     rom->has_size = TRUE;
     rom->size = 4;
     g_ptr_array_add(roms, rom);
@@ -175,6 +176,43 @@ static void test_pegasus_export(void)
     close_temp_store(store, dir, db);
 }
 
+static void test_dat_names(void)
+{
+    gchar *dir = NULL, *db = NULL;
+    RhStore *store = open_temp_store(&dir, &db);
+    seed_game(store);
+
+    gchar *root = make_library();
+    gchar *out = g_dir_make_tmp("romham-out-XXXXXX", NULL);
+    g_assert_nonnull(out);
+
+    RhExportOptions options = {
+        .library_root = root,
+        .output_dir = out,
+        .copy_roms = TRUE,
+        .copy_media = FALSE,
+        .name_mode = RH_EXPORT_NAMES_DAT,
+    };
+    RhExportStats stats;
+    RhErr err = rh_export_run(store, NULL, RH_TEST_FRONTEND_DIR "/esde.conf",
+                              &options, NULL, NULL, &stats);
+    g_assert_cmpint(err, ==, RH_OK);
+    g_assert_cmpuint(stats.roms, ==, 1);
+    g_assert_cmpuint(stats.errors, ==, 0);
+
+    /* 复制出来的文件用 DAT 标准名，源库内的原名不受影响。 */
+    gchar *dat_rom = g_build_filename(out, "gb", "Tetris (World).gb", NULL);
+    gchar *original = g_build_filename(out, "gb", "Tetris.gb", NULL);
+    g_assert_true(g_file_test(dat_rom, G_FILE_TEST_IS_REGULAR));
+    g_assert_false(g_file_test(original, G_FILE_TEST_EXISTS));
+
+    g_free(original);
+    g_free(dat_rom);
+    g_free(out);
+    g_free(root);
+    close_temp_store(store, dir, db);
+}
+
 static void test_template_errors(void)
 {
     gchar *dir = g_dir_make_tmp("romham-spec-XXXXXX", NULL);
@@ -229,6 +267,7 @@ int main(int argc, char **argv)
     rh_test_init(&argc, &argv);
     g_test_add_func("/export/esde", test_esde_export);
     g_test_add_func("/export/pegasus", test_pegasus_export);
+    g_test_add_func("/export/dat-names", test_dat_names);
     g_test_add_func("/export/template-errors", test_template_errors);
     return g_test_run();
 }

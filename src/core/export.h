@@ -31,6 +31,13 @@ void          rh_export_spec_free(RhExportSpec *spec);
 const char *rh_export_spec_id(const RhExportSpec *spec);
 const char *rh_export_spec_name(const RhExportSpec *spec);
 
+/* 导出清单与复制文件时使用的 ROM 文件名。 */
+typedef enum {
+    RH_EXPORT_NAMES_ORIGINAL = 0, /* 库内文件名（默认） */
+    RH_EXPORT_NAMES_DAT = 1,      /* DAT 标准名（通常为英文） */
+    RH_EXPORT_NAMES_DISPLAY = 2   /* 游戏显示名（通常为中文）+ 原后缀 */
+} RhExportNameMode;
+
 typedef struct {
     const char *library_root;  /* 源库根；copy_roms/copy_media 时需要 */
     const char *output_dir;    /* 目标根目录 */
@@ -38,6 +45,7 @@ typedef struct {
     gboolean    copy_media;    /* 按 [export.media] 复制媒体 */
     gboolean    compress_roms; /* 预留：M3 不压缩，字段保留 */
     gboolean    generate_m3u;  /* 多碟游戏生成 m3u 并把它作为 rom_file */
+    RhExportNameMode name_mode; /* ROM 文件名策略 */
 } RhExportOptions;
 
 typedef struct {

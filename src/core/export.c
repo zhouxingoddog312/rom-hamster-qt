@@ -852,6 +852,33 @@ static void fill_platform_vars(GHashTable *vars, const RhExportSpec *spec,
     set_var(vars, "rom_file", "");
 }
 
+/* 按策略给出导出时使用的 ROM 名。display 模式只在能唯一命名时生效：
+ * 单 ROM 或多碟（带碟号）游戏；多文件街机包回落到库内文件名。 */
+static gchar *export_rom_name(const RhRomFile *rom, const RhGame *game,
+                              guint rom_count, RhExportNameMode mode)
+{
+    if (mode == RH_EXPORT_NAMES_DAT && rom->dat_name != NULL &&
+        rom->dat_name[0] != '\0')
+        return g_strdup(rom->dat_name);
+
+    if (mode == RH_EXPORT_NAMES_DISPLAY && game->name != NULL &&
+        game->name[0] != '\0' && (rom_count == 1 || rom->disc_no > 0)) {
+        gchar *base = rh_str_sanitize_component(game->name);
+        gchar *ext = rh_str_extension(rom->filename);
+        gchar *name = NULL;
+        if (rom->disc_no > 0)
+            name = g_strdup_printf("%s (Disc %d)%s", base, rom->disc_no,
+                                   ext != NULL ? ext : "");
+        else
+            name = g_strdup_printf("%s%s", base, ext != NULL ? ext : "");
+        g_free(ext);
+        g_free(base);
+        return name;
+    }
+
+    return g_strdup(rom->filename);
+}
+
 static void add_media_item(GHashTable *arrays, const char *array_name,
                            const char *kind, const char *rel,
                            const char *filename, int index)
@@ -989,8 +1016,11 @@ RhErr rh_export_run(RhStore *store, const RhPlatformRules *rules,
             continue;
         }
 
-        const gchar *first_rom = roms->len > 0
-            ? ((RhRomFile *)g_ptr_array_index(roms, 0))->filename : "";
+        gchar *first_name = roms->len > 0
+            ? export_rom_name(g_ptr_array_index(roms, 0), game, roms->len,
+                              options->name_mode)
+            : g_strdup("");
+        const gchar *first_rom = first_name;
         gchar *m3u_name = NULL;
         if (options->generate_m3u && game->is_multi_disc && roms->len > 0) {
             const gchar *base = (game->game_main_name != NULL &&
@@ -1015,7 +1045,9 @@ RhErr rh_export_run(RhStore *store, const RhPlatformRules *rules,
         if (options->copy_roms) {
             for (guint r = 0; r < roms->len; r++) {
                 RhRomFile *rom = g_ptr_array_index(roms, r);
-                set_var(vars, "rom_file", rom->filename);
+                gchar *out_name = export_rom_name(rom, game, roms->len,
+                                                  options->name_mode);
+                set_var(vars, "rom_file", out_name);
                 gchar *rel = expand_tokens(spec->layout_rom, vars);
                 gchar *dst = g_build_filename(options->output_dir, rel, NULL);
                 gchar *src = g_build_filename(options->library_root,
@@ -1028,6 +1060,7 @@ RhErr rh_export_run(RhStore *store, const RhPlatformRules *rules,
                 g_free(src);
                 g_free(dst);
                 g_free(rel);
+                g_free(out_name);
             }
             set_var(vars, "rom_file", first_rom);
         }
@@ -1040,8 +1073,11 @@ RhErr rh_export_run(RhStore *store, const RhPlatformRules *rules,
                 GString *content = g_string_new(NULL);
                 for (guint r = 0; r < roms->len; r++) {
                     RhRomFile *rom = g_ptr_array_index(roms, r);
-                    g_string_append(content, rom->filename);
+                    gchar *out_name = export_rom_name(rom, game, roms->len,
+                                                      options->name_mode);
+                    g_string_append(content, out_name);
                     g_string_append_c(content, '\n');
+                    g_free(out_name);
                 }
                 if (!g_file_set_contents(dst, content->str, (gssize)content->len,
                                          NULL) && out_stats != NULL) {
@@ -1127,6 +1163,7 @@ RhErr rh_export_run(RhStore *store, const RhPlatformRules *rules,
         g_hash_table_unref(vars);
         g_hash_table_unref(arrays);
         g_free(m3u_name);
+        g_free(first_name);
         g_ptr_array_unref(roms);
     }
 
