@@ -10,7 +10,8 @@ Build-Depends: debhelper-compat (= 13),
                libsqlite3-dev (>= 3.35),
                libarchive-dev (>= 3.4),
                libxml2-dev (>= 2.9),
-               zlib1g-dev
+               zlib1g-dev,
+               libcurl4-openssl-dev (>= 7.74)
 Standards-Version: 4.6.2
 Rules-Requires-Root: no
 Homepage: https://gitee.com/goddog312/rom-hamster-qt

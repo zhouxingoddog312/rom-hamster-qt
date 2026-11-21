@@ -3,6 +3,7 @@
 
 #include "cli-common.h"
 #include "dat.h"
+#include "dat-fetch.h"
 #include "dat-source.h"
 #include "i18n.h"
 #include "rh-path.h"
@@ -16,6 +17,10 @@ static gboolean opt_force = FALSE;
 
 static gchar *opt_file = NULL;
 static gboolean opt_explain = FALSE;
+
+static gboolean opt_check = FALSE;
+static gchar *opt_dat_dir = NULL;
+static gboolean opt_import = FALSE;
 
 static gchar *resolve_db(void)
 {
@@ -38,6 +43,8 @@ static gboolean dat_progress(const gchar *path, gint64 entries,
         return TRUE;
 
     int percent = (int)(bytes_done * 100 / bytes_total);
+    if (percent == progress->last_percent)
+        return TRUE;
     if (percent < progress->last_percent + 5 && percent != 100)
         return TRUE;
 
@@ -311,10 +318,224 @@ static int dat_sources(int argc, char **argv)
     return 0;
 }
 
+typedef struct {
+    int last_percent;
+    gboolean printed;
+} FetchProgress;
+
+static gboolean fetch_progress(const gchar *url, guint64 bytes_done,
+                               guint64 bytes_total, gpointer user_data)
+{
+    (void)url;
+    FetchProgress *progress = user_data;
+
+    if (bytes_total == 0)
+        return TRUE;
+
+    int percent = (int)(bytes_done * 100 / bytes_total);
+    if (percent == progress->last_percent)
+        return TRUE;
+    if (percent < progress->last_percent + 5 && percent != 100)
+        return TRUE;
+
+    progress->last_percent = percent;
+    progress->printed = TRUE;
+    gchar *line = g_strdup_printf("\r%3d%%", percent);
+    rh_cli_print(stderr, line);
+    g_free(line);
+    return TRUE;
+}
+
+static int dat_update(int argc, char **argv)
+{
+    GOptionEntry entries[] = {
+        { "db", 0, 0, G_OPTION_ARG_FILENAME, &opt_db, N_("Database file"), "PATH" },
+        { "platform", 0, 0, G_OPTION_ARG_STRING, &opt_platform,
+          N_("Only update the DAT of this platform"), "ID" },
+        { "file", 0, 0, G_OPTION_ARG_FILENAME, &opt_file,
+          N_("Manifest file (default: search data directories)"), "PATH" },
+        { "check", 0, 0, G_OPTION_ARG_NONE, &opt_check,
+          N_("Only report whether an update is available"), NULL },
+        { "force", 0, 0, G_OPTION_ARG_NONE, &opt_force,
+          N_("Download and compare even if the local file matches"), NULL },
+        { "dir", 0, 0, G_OPTION_ARG_FILENAME, &opt_dat_dir,
+          N_("Directory for downloaded DAT files"), "PATH" },
+        { "import", 0, 0, G_OPTION_ARG_NONE, &opt_import,
+          N_("Import the downloaded DAT files into the library"), NULL },
+        { NULL, 0, 0, 0, 0, NULL, NULL }
+    };
+
+    GOptionContext *ctx = g_option_context_new(_("- Download and update DAT files"));
+    g_option_context_add_main_entries(ctx, entries, NULL);
+    g_option_context_set_translation_domain(ctx, GETTEXT_PACKAGE);
+    GError *error = NULL;
+    if (!g_option_context_parse(ctx, &argc, &argv, &error)) {
+        gchar *msg = g_strdup_printf(_("Option error: %s"), error->message);
+        g_error_free(error);
+        g_option_context_free(ctx);
+        return rh_cli_error(msg);
+    }
+    g_option_context_free(ctx);
+
+    if (!rh_dat_fetch_supported())
+        return rh_cli_error(_("This build has no DAT download support"));
+
+    gchar *manifest = opt_file != NULL ? g_strdup(opt_file)
+                                       : rh_dat_sources_default_path();
+    if (manifest == NULL) {
+        rh_cli_print(stderr, _("DAT source manifest not found\n"));
+        print_search_hint();
+        return 1;
+    }
+
+    GPtrArray *sources = NULL;
+    gchar *message = NULL;
+    RhErr err = rh_dat_sources_load(manifest, &sources, &message);
+    g_free(manifest);
+    if (err != RH_OK) {
+        gchar *msg = message != NULL
+            ? g_strdup_printf(_("Cannot load DAT sources: %s"), message)
+            : g_strdup_printf(_("Cannot load DAT sources: %s"), rh_err_str(err));
+        g_free(message);
+        return rh_cli_error(msg);
+    }
+
+    gchar *dir = opt_dat_dir != NULL ? g_strdup(opt_dat_dir)
+                                     : rh_path_dat_cache_dir();
+
+    RhStore *store = NULL;
+    if (opt_import) {
+        gchar *db = resolve_db();
+        store = rh_cli_open_store(db, &err);
+        g_free(db);
+        if (store == NULL) {
+            g_ptr_array_unref(sources);
+            g_free(dir);
+            return 1;
+        }
+    }
+
+    int updated = 0, unchanged = 0, available = 0, failed = 0, matched = 0;
+
+    for (guint i = 0; i < sources->len; i++) {
+        const RhDatSource *source = g_ptr_array_index(sources, i);
+        if (opt_platform != NULL && opt_platform[0] != '\0' &&
+            g_ascii_strcasecmp(source->platform, opt_platform) != 0)
+            continue;
+        matched++;
+
+        RhDatFetchOptions options = { 0 };
+        options.check_only = opt_check;
+        options.force = opt_force;
+        FetchProgress progress = { 0, };
+        options.progress = fetch_progress;
+        options.user_data = &progress;
+
+        RhDatFetchResult result;
+        err = rh_dat_fetch(source, dir, &options, &result);
+        if (progress.printed)
+            rh_cli_print(stderr, "\n");
+
+        gchar *line = NULL;
+        if (err != RH_OK) {
+            failed++;
+            line = g_strdup_printf(_("%s: failed: %s\n"), source->platform,
+                                   result.message != NULL
+                                       ? result.message : rh_err_str(err));
+            rh_cli_print(stderr, line);
+            g_free(line);
+            rh_dat_fetch_result_clear(&result);
+            continue;
+        }
+
+        gchar *bytes = rh_cli_format_int64((gint64)result.bytes);
+        if (opt_check) {
+            if (result.changed) {
+                available++;
+                line = g_strdup_printf(_("%s: update available (%s bytes)\n"),
+                                       source->platform, bytes);
+            } else {
+                unchanged++;
+                line = g_strdup_printf(_("%s: up to date\n"), source->platform);
+            }
+        } else if (result.installed) {
+            updated++;
+            line = g_strdup_printf(_("%s: updated (%s bytes)\n"),
+                                   source->platform, bytes);
+        } else {
+            unchanged++;
+            line = g_strdup_printf(_("%s: up to date\n"), source->platform);
+        }
+        rh_cli_print(stdout, line);
+        g_free(line);
+        g_free(bytes);
+
+        if (opt_import && store != NULL) {
+            RhDatImportOptions import_options = { 0 };
+            import_options.platform = source->platform;
+            import_options.dat_name = source->name;
+            import_options.force = opt_force;
+            DatProgress import_progress = { 0, };
+            import_options.progress = dat_progress;
+            import_options.user_data = &import_progress;
+
+            RhDatImportStats stats;
+            rh_dat_import_stats_clear(&stats);
+            err = rh_dat_import(store, result.path, &import_options, &stats);
+            if (import_progress.last_percent > 0)
+                rh_cli_print(stderr, "\n");
+
+            if (err != RH_OK) {
+                failed++;
+                line = g_strdup_printf(_("%s: index update failed: %s\n"),
+                                       source->platform, rh_err_str(err));
+                rh_cli_print(stderr, line);
+                g_free(line);
+            } else if (stats.unchanged) {
+                line = g_strdup_printf(_("%s: index is up to date\n"),
+                                       source->platform);
+                rh_cli_print(stdout, line);
+                g_free(line);
+            } else {
+                gchar *entries = rh_cli_format_int64(stats.entry_count);
+                line = g_strdup_printf(_("%s: indexed %s entries\n"),
+                                       source->platform, entries);
+                rh_cli_print(stdout, line);
+                g_free(line);
+                g_free(entries);
+            }
+        }
+
+        rh_dat_fetch_result_clear(&result);
+    }
+
+    g_free(dir);
+    if (store != NULL)
+        store_close(store);
+    g_ptr_array_unref(sources);
+
+    if (matched == 0) {
+        gchar *msg = opt_platform != NULL
+            ? g_strdup_printf(_("No DAT source for platform: %s"), opt_platform)
+            : g_strdup(_("No DAT source matched"));
+        return rh_cli_error(msg);
+    }
+
+    gchar *summary = opt_check
+        ? g_strdup_printf(_("Check finished: %d update(s), %d up to date, %d failed\n"),
+                          available, unchanged, failed)
+        : g_strdup_printf(_("Update finished: %d updated, %d unchanged, %d failed\n"),
+                          updated, unchanged, failed);
+    rh_cli_print(stdout, summary);
+    g_free(summary);
+
+    return failed > 0 ? 1 : 0;
+}
+
 int rh_cmd_dat(int argc, char **argv)
 {
     if (argc < 2)
-        return rh_cli_error(_("Usage: rom-hamster dat <import|list|sources> [options]"));
+        return rh_cli_error(_("Usage: rom-hamster dat <import|list|sources|update> [options]"));
 
     const char *sub = argv[1];
     if (strcmp(sub, "import") == 0)
@@ -323,6 +544,8 @@ int rh_cmd_dat(int argc, char **argv)
         return dat_list(argc - 1, argv + 1);
     if (strcmp(sub, "sources") == 0)
         return dat_sources(argc - 1, argv + 1);
+    if (strcmp(sub, "update") == 0)
+        return dat_update(argc - 1, argv + 1);
 
     gchar *msg = g_strdup_printf(_("Unknown dat subcommand: %s"), sub);
     return rh_cli_error(msg);

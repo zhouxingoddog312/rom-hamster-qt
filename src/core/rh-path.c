@@ -148,6 +148,15 @@ static void add_dir(GPtrArray *dirs, const char *path)
     g_ptr_array_add(dirs, g_strdup(path));
 }
 
+char *rh_path_dat_cache_dir(void)
+{
+    const char *env = g_getenv("ROM_HAMSTER_DAT_DIR");
+    if (env != NULL && env[0] != '\0')
+        return g_strdup(env);
+
+    return g_build_filename(g_get_user_data_dir(), "rom-hamster", "dats", NULL);
+}
+
 GPtrArray *rh_path_data_dir_candidates(void)
 {
     GPtrArray *dirs = g_ptr_array_new_with_free_func(g_free);

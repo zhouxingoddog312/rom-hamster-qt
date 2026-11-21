@@ -35,7 +35,7 @@ static void print_help(const char *program)
           "  delete   Delete a game record (optionally its files)\n"
           "  stats    Library statistics\n"
           "  export   Export a manifest for a front-end\n"
-          "  dat      Import and inspect DAT indexes\n"
+          "  dat      Import, fetch and inspect DAT indexes\n"
           "  help     Show this help\n"
           "  version  Show version information\n"
           "\n"

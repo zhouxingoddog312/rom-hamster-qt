@@ -34,6 +34,12 @@ char *rh_path_current_dir(void);
  */
 GPtrArray *rh_path_data_dir_candidates(void);
 
+/*
+ * 下载 DAT 的默认目录：ROM_HAMSTER_DAT_DIR，否则 <用户数据目录>/rom-hamster/dats。
+ * 只返回路径，不创建目录也不检查存在。返回新分配的 UTF-8 字符串。
+ */
+char *rh_path_dat_cache_dir(void);
+
 /* 原生窄字符串 → UTF-8。Windows 走 CP_ACP，POSIX 直接复制。 */
 char *rh_path_utf8_from_native(const char *native);
 

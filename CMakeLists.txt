@@ -13,6 +13,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 # ---------------------------------------------------------------------------
 option(RH_GUI        "构建 Qt 6 GUI（rom-hamster-gui）"        ON)
 option(RH_MULTIMEDIA "启用 Qt Multimedia 内嵌视频（可选构建）" OFF)
+option(RH_DAT_FETCH  "启用 DAT 自动下载（libcurl）"             ON)
 set(RH_UPDATE_CHECK_URL "" CACHE STRING "GUI 版本检查 JSON 地址（留空则不检查）")
 set(RH_SANITIZE "" CACHE STRING "Sanitizer 列表，如 address,undefined（留空为关闭）")
 
@@ -42,6 +43,10 @@ pkg_check_modules(LIBARCHIVE REQUIRED IMPORTED_TARGET libarchive>=3.4)
 pkg_check_modules(LIBXML2 REQUIRED IMPORTED_TARGET libxml-2.0>=2.9)
 find_package(ZLIB REQUIRED)
 
+if(RH_DAT_FETCH)
+    pkg_check_modules(CURL REQUIRED IMPORTED_TARGET libcurl>=7.74)
+endif()
+
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/rh-version.h.in"
     "${CMAKE_BINARY_DIR}/generated/rh-version.h"
@@ -65,6 +70,7 @@ add_library(romham SHARED
     src/core/rh-archive.c
     src/core/dat.c
     src/core/dat-source.c
+    src/core/dat-fetch.c
     src/core/import.c
     src/core/query.c
     src/core/detail.c
@@ -99,6 +105,11 @@ set_target_properties(romham PROPERTIES
 # 数据目录兜底：开发构建直接命中源码树 data/；安装布局仍优先（见 rh-path.c）。
 target_compile_definitions(romham PRIVATE
     RH_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
+
+if(RH_DAT_FETCH)
+    target_link_libraries(romham PRIVATE PkgConfig::CURL)
+    target_compile_definitions(romham PRIVATE RH_DAT_FETCH=1)
+endif()
 
 if(MSVC)
     target_compile_options(romham PRIVATE /W4 /utf-8)
@@ -301,6 +312,12 @@ if(BUILD_TESTING)
     target_compile_definitions(test-dat-source PRIVATE
         RH_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
     add_test(NAME core/dat-source COMMAND test-dat-source)
+
+    if(RH_DAT_FETCH)
+        add_executable(test-dat-fetch tests/unit/test-dat-fetch.c)
+        target_link_libraries(test-dat-fetch PRIVATE romham PkgConfig::GLIB2)
+        add_test(NAME core/dat-fetch COMMAND test-dat-fetch)
+    endif()
 
     add_executable(test-query tests/unit/test-query.c)
     target_link_libraries(test-query PRIVATE
