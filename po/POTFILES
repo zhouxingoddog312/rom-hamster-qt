@@ -4,3 +4,4 @@ src/cli/cmd-query.c
 src/cli/cmd-detail.c
 src/cli/cmd-manage.c
 src/cli/cmd-export.c
+src/cli/cmd-dat.c

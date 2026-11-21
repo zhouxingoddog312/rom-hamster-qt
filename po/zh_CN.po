@@ -9,8 +9,8 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: rom-hamster 0.1.0\n"
-"Report-Msgid-Bugs-To: https://gitee.com/goddog312/rom-hamster-qt/issues\n"
-"POT-Creation-Date: 2026-11-21 10:46+0800\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-11-21 14:46+0800\n"
 "PO-Revision-Date: 2026-11-21 10:50+0800\n"
 "Last-Translator: Zhou Xin <zhouxin312@qq.com>\n"
 "Language-Team: Chinese (Simplified)\n"
@@ -20,7 +20,7 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 
-#: src/cli/main.c:28
+#: src/cli/main.c:29
 #, c-format
 msgid ""
 "Usage: %s <command> [options]\n"
@@ -32,6 +32,7 @@ msgid ""
 "  delete   Delete a game record (optionally its files)\n"
 "  stats    Library statistics\n"
 "  export   Export a manifest for a front-end\n"
+"  dat      Import and inspect DAT indexes\n"
 "  help     Show this help\n"
 "  version  Show version information\n"
 "\n"
@@ -46,28 +47,29 @@ msgstr ""
 "  delete   删除游戏记录（可选删除文件）\n"
 "  stats    库统计\n"
 "  export   按前端规格导出清单\n"
+"  dat      导入与查看 DAT 索引\n"
 "  help     显示本帮助\n"
 "  version  显示版本\n"
 "\n"
 "用 \"%s <命令> --help\" 查看各命令选项。\n"
 
-#: src/cli/main.c:64
+#: src/cli/main.c:66
 msgid "Repository: "
 msgstr "仓库: "
 
-#: src/cli/main.c:67
+#: src/cli/main.c:69
 msgid "Report issues: "
 msgstr "问题反馈: "
 
-#: src/cli/main.c:94
+#: src/cli/main.c:96
 msgid "Show version information and exit"
 msgstr "显示版本信息后退出"
 
-#: src/cli/main.c:98
+#: src/cli/main.c:100
 msgid "- ROM library manager"
 msgstr "- ROM 库管理器"
 
-#: src/cli/main.c:151
+#: src/cli/main.c:155
 #, c-format
 msgid "Unknown command: %s (see 'help' for usage)\n"
 msgstr "未知命令: %s（用 help 查看用法）\n"
@@ -79,6 +81,7 @@ msgstr "无法打开数据库 %s：%s\n"
 
 #: src/cli/cmd-query.c:33 src/cli/cmd-detail.c:30 src/cli/cmd-manage.c:39
 #: src/cli/cmd-manage.c:85 src/cli/cmd-manage.c:163 src/cli/cmd-export.c:20
+#: src/cli/cmd-dat.c:54 src/cli/cmd-dat.c:152
 msgid "Database file"
 msgstr "数据库文件"
 
@@ -168,6 +171,7 @@ msgstr "- 检索游戏"
 
 #: src/cli/cmd-query.c:66 src/cli/cmd-detail.c:39 src/cli/cmd-manage.c:51
 #: src/cli/cmd-manage.c:105 src/cli/cmd-manage.c:172 src/cli/cmd-export.c:38
+#: src/cli/cmd-dat.c:71 src/cli/cmd-dat.c:161 src/cli/cmd-dat.c:254
 #, c-format
 msgid "Option error: %s"
 msgstr "参数错误: %s"
@@ -495,3 +499,152 @@ msgstr "导出失败: %s"
 #, c-format
 msgid "Export complete: %u games, %u ROM files, %u media files, %u errors\n"
 msgstr "导出完成：游戏 %u，ROM %u，媒体 %u，错误 %u\n"
+
+#: src/cli/cmd-dat.c:56
+msgid "Platform ID the DAT belongs to"
+msgstr "DAT 所属的平台 ID"
+
+#: src/cli/cmd-dat.c:58
+msgid "Override the DAT name"
+msgstr "覆盖 DAT 名称"
+
+#: src/cli/cmd-dat.c:60
+msgid "Override the DAT version"
+msgstr "覆盖 DAT 版本"
+
+#: src/cli/cmd-dat.c:62
+msgid "Rebuild the index even if the file is unchanged"
+msgstr "即使文件未变也重建索引"
+
+#: src/cli/cmd-dat.c:66
+msgid "- Import a Logiqx DAT file"
+msgstr "- 导入 Logiqx DAT 文件"
+
+#: src/cli/cmd-dat.c:79
+msgid "Usage: rom-hamster dat import <FILE> --platform <ID>"
+msgstr "用法: rom-hamster dat import <文件> --platform <平台ID>"
+
+#: src/cli/cmd-dat.c:81
+msgid "--platform is required"
+msgstr "必须指定 --platform"
+
+#: src/cli/cmd-dat.c:108
+#, c-format
+msgid "DAT import failed: %s"
+msgstr "DAT 导入失败：%s"
+
+#: src/cli/cmd-dat.c:114
+msgid "Unchanged: index is up to date (use --force to rebuild)\n"
+msgstr "内容未变：索引已是最新（用 --force 强制重建）\n"
+
+#: src/cli/cmd-dat.c:118
+#, c-format
+msgid "Imported %s\n"
+msgstr "已导入 %s\n"
+
+#: src/cli/cmd-dat.c:122
+#, c-format
+msgid "Platform: %s\n"
+msgstr "平台: %s\n"
+
+#: src/cli/cmd-dat.c:126
+#, c-format
+msgid "Encoding: %s%s%s\n"
+msgstr "编码: %s%s%s\n"
+
+#: src/cli/cmd-dat.c:128
+msgid " (guessed)"
+msgstr "（推测）"
+
+#: src/cli/cmd-dat.c:129
+msgid " (invalid bytes escaped)"
+msgstr "（非法字节已转义）"
+
+#: src/cli/cmd-dat.c:136
+#, c-format
+msgid "Games: %s, entries: %s, skipped: %s\n"
+msgstr "游戏: %s，条目: %s，跳过: %s\n"
+
+#: src/cli/cmd-dat.c:145
+msgid "Warning: DAT structure error, partial index imported\n"
+msgstr "警告: DAT 结构有误，仅导入已解析的部分索引\n"
+
+#: src/cli/cmd-dat.c:156
+msgid "- List imported DAT indexes"
+msgstr "- 列出已导入的 DAT 索引"
+
+#: src/cli/cmd-dat.c:180
+#, c-format
+msgid "Cannot list DAT indexes: %s"
+msgstr "无法列出 DAT 索引：%s"
+
+#: src/cli/cmd-dat.c:186
+msgid "No DAT imported\n"
+msgstr "尚未导入 DAT\n"
+
+#: src/cli/cmd-dat.c:191
+msgid "Platform\tEntries\tVersion\tName\tPath\n"
+msgstr "平台\t条目\t版本\t名称\t路径\n"
+
+#: src/cli/cmd-dat.c:211
+msgid "Searched:\n"
+msgstr "已查找:\n"
+
+#: src/cli/cmd-dat.c:215 src/cli/cmd-dat.c:222 src/cli/cmd-dat.c:231
+#, c-format
+msgid "  %s\n"
+msgstr "  %s\n"
+
+#: src/cli/cmd-dat.c:243
+msgid "Manifest file (default: search data directories)"
+msgstr "清单文件（默认在数据目录中查找）"
+
+#: src/cli/cmd-dat.c:245
+msgid "Show which manifest file is used"
+msgstr "显示实际使用的清单文件"
+
+#: src/cli/cmd-dat.c:249
+msgid "- List DAT sources"
+msgstr "- 列出 DAT 来源"
+
+#: src/cli/cmd-dat.c:264
+msgid "DAT source manifest not found\n"
+msgstr "未找到 DAT 源清单\n"
+
+#: src/cli/cmd-dat.c:270
+#, c-format
+msgid "Manifest: %s\n"
+msgstr "清单: %s\n"
+
+#: src/cli/cmd-dat.c:280 src/cli/cmd-dat.c:281
+#, c-format
+msgid "Cannot load DAT sources: %s"
+msgstr "无法加载 DAT 源清单：%s"
+
+#: src/cli/cmd-dat.c:290
+#, c-format
+msgid ""
+"[%s] %s\n"
+"  file: %s\n"
+msgstr ""
+"[%s] %s\n"
+"  文件: %s\n"
+
+#: src/cli/cmd-dat.c:298
+#, c-format
+msgid "  url: %s\n"
+msgstr "  地址: %s\n"
+
+#: src/cli/cmd-dat.c:304
+#, c-format
+msgid "  sha1: %s\n"
+msgstr "  SHA1: %s\n"
+
+#: src/cli/cmd-dat.c:317
+msgid "Usage: rom-hamster dat <import|list|sources> [options]"
+msgstr "用法: rom-hamster dat <import|list|sources> [选项]"
+
+#: src/cli/cmd-dat.c:327
+#, c-format
+msgid "Unknown dat subcommand: %s"
+msgstr "未知 dat 子命令: %s"
