@@ -1,1 +1,6 @@
 src/cli/main.c
+src/cli/cli-common.c
+src/cli/cmd-query.c
+src/cli/cmd-detail.c
+src/cli/cmd-manage.c
+src/cli/cmd-export.c

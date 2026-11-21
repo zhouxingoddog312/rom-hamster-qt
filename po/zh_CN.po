@@ -1,20 +1,23 @@
 # rom-hamster 的简体中文翻译（ARCHITECTURE.md §11）
 #
 # 重新生成模板（在仓库根目录）：
-#   xgettext --language=C --keyword=_ --keyword=N_ --from-code=UTF-8 \
-#            -o po/rom-hamster.pot $(cat po/POTFILES)
+#   xgettext --language=C --keyword=_ --keyword=N_ --from-code=UTF-8 --files-from=po/POTFILES -o build/rom-hamster.pot
 # 合并到本文件：
-#   msgmerge --update po/zh_CN.po po/rom-hamster.pot
+#   msgmerge --update po/zh_CN.po build/rom-hamster.pot
 # 构建时由 msgfmt 编译成 share/locale/zh_CN/LC_MESSAGES/rom-hamster.mo。
 #
 msgid ""
 msgstr ""
 "Project-Id-Version: rom-hamster 0.1.0\n"
 "Report-Msgid-Bugs-To: https://gitee.com/goddog312/rom-hamster-qt/issues\n"
+"POT-Creation-Date: 2026-11-21 10:46+0800\n"
+"PO-Revision-Date: 2026-11-21 10:50+0800\n"
+"Last-Translator: Zhou Xin <zhouxin312@qq.com>\n"
+"Language-Team: Chinese (Simplified)\n"
+"Language: zh_CN\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Language: zh_CN\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 
 #: src/cli/main.c:28
@@ -48,23 +51,447 @@ msgstr ""
 "\n"
 "用 \"%s <命令> --help\" 查看各命令选项。\n"
 
-#: src/cli/main.c:83
-msgid "Show version information and exit"
-msgstr "显示版本信息后退出"
-
-#: src/cli/main.c:87
-msgid "- ROM library manager"
-msgstr "- ROM 库管理器"
-
-#: src/cli/main.c:105 src/cli/main.c:140
+#: src/cli/main.c:64
 msgid "Repository: "
 msgstr "仓库: "
 
-#: src/cli/main.c:106 src/cli/main.c:141
+#: src/cli/main.c:67
 msgid "Report issues: "
 msgstr "问题反馈: "
 
-#: src/cli/main.c:145
+#: src/cli/main.c:94
+msgid "Show version information and exit"
+msgstr "显示版本信息后退出"
+
+#: src/cli/main.c:98
+msgid "- ROM library manager"
+msgstr "- ROM 库管理器"
+
+#: src/cli/main.c:151
 #, c-format
 msgid "Unknown command: %s (see 'help' for usage)\n"
 msgstr "未知命令: %s（用 help 查看用法）\n"
+
+#: src/cli/cli-common.c:33
+#, c-format
+msgid "Cannot open database %s: %s\n"
+msgstr "无法打开数据库 %s：%s\n"
+
+#: src/cli/cmd-query.c:33 src/cli/cmd-detail.c:30 src/cli/cmd-manage.c:39
+#: src/cli/cmd-manage.c:85 src/cli/cmd-manage.c:163 src/cli/cmd-export.c:20
+msgid "Database file"
+msgstr "数据库文件"
+
+#: src/cli/cmd-query.c:34
+msgid "Platform ID"
+msgstr "平台 ID"
+
+#: src/cli/cmd-query.c:35 src/cli/cmd-detail.c:75 src/cli/cmd-manage.c:89
+msgid "Genre"
+msgstr "类型"
+
+#: src/cli/cmd-query.c:36 src/cli/cmd-detail.c:81 src/cli/cmd-manage.c:87
+msgid "Developer"
+msgstr "开发商"
+
+#: src/cli/cmd-query.c:37 src/cli/cmd-detail.c:82 src/cli/cmd-manage.c:88
+msgid "Publisher"
+msgstr "发行商"
+
+#: src/cli/cmd-query.c:38 src/cli/cmd-detail.c:80 src/cli/cmd-manage.c:90
+msgid "Region"
+msgstr "区域"
+
+#: src/cli/cmd-query.c:40
+msgid "Patch type: generic/platform/mixed"
+msgstr "补丁类型 generic/platform/mixed"
+
+#: src/cli/cmd-query.c:42
+msgid "ROM status: good/baddump/unknown"
+msgstr "ROM 状态 good/baddump/unknown"
+
+#: src/cli/cmd-query.c:44
+msgid "ROM format: raw/zip/7z/chd/cso/wbfs"
+msgstr "ROM 格式 raw/zip/7z/chd/cso/wbfs"
+
+#: src/cli/cmd-query.c:45
+msgid "Name substring"
+msgstr "名称子串"
+
+#: src/cli/cmd-query.c:46
+msgid "Tag (repeatable)"
+msgstr "标签（可多次）"
+
+#: src/cli/cmd-query.c:47
+msgid "First year"
+msgstr "起始年份"
+
+#: src/cli/cmd-query.c:48
+msgid "Last year"
+msgstr "结束年份"
+
+#: src/cli/cmd-query.c:49
+msgid "Multi-disc games only"
+msgstr "只看多碟"
+
+#: src/cli/cmd-query.c:50
+msgid "Single-disc games only"
+msgstr "只看单碟"
+
+#: src/cli/cmd-query.c:51
+msgid "Games with patches only"
+msgstr "只看有补丁"
+
+#: src/cli/cmd-query.c:52
+msgid "Games without patches only"
+msgstr "只看无补丁"
+
+#: src/cli/cmd-query.c:54
+msgid "Sort key: name/rating/year/discs"
+msgstr "排序键：name/rating/year/discs"
+
+#: src/cli/cmd-query.c:55
+msgid "Descending order"
+msgstr "降序"
+
+#: src/cli/cmd-query.c:56
+msgid "Result limit (0=200)"
+msgstr "返回条数（0=200）"
+
+#: src/cli/cmd-query.c:57
+msgid "Results to skip"
+msgstr "跳过条数"
+
+#: src/cli/cmd-query.c:61
+msgid "- Search games"
+msgstr "- 检索游戏"
+
+#: src/cli/cmd-query.c:66 src/cli/cmd-detail.c:39 src/cli/cmd-manage.c:51
+#: src/cli/cmd-manage.c:105 src/cli/cmd-manage.c:172 src/cli/cmd-export.c:38
+#, c-format
+msgid "Option error: %s"
+msgstr "参数错误: %s"
+
+#: src/cli/cmd-query.c:74
+msgid "--sort accepts only name/rating/year/discs"
+msgstr "--sort 只接受 name/rating/year/discs"
+
+#: src/cli/cmd-query.c:108
+#, c-format
+msgid "Query failed: %s"
+msgstr "检索失败: %s"
+
+#: src/cli/cmd-query.c:132
+#, c-format
+msgid "Total: %s; showing %u\n"
+msgstr "共 %s 条，显示 %u 条\n"
+
+#: src/cli/cmd-detail.c:11
+msgid "Cover"
+msgstr "封面"
+
+#: src/cli/cmd-detail.c:12
+msgid "Screenshot"
+msgstr "截图"
+
+#: src/cli/cmd-detail.c:13
+msgid "Video"
+msgstr "视频"
+
+#: src/cli/cmd-detail.c:14
+msgid "Marquee"
+msgstr "标志"
+
+#: src/cli/cmd-detail.c:15
+msgid "Mix image"
+msgstr "混合图"
+
+#: src/cli/cmd-detail.c:16
+msgid "Intro"
+msgstr "片头"
+
+#: src/cli/cmd-detail.c:17
+msgid "Patch"
+msgstr "补丁"
+
+#: src/cli/cmd-detail.c:34
+msgid "- Show game details"
+msgstr "- 显示游戏详情"
+
+#: src/cli/cmd-detail.c:47
+msgid "Usage: rom-hamster show <game-ID> [--db PATH]"
+msgstr "用法: rom-hamster show <游戏ID> [--db PATH]"
+
+#: src/cli/cmd-detail.c:59
+#, c-format
+msgid "Game not found: %s (%s)"
+msgstr "找不到游戏 %s（%s）"
+
+#: src/cli/cmd-detail.c:69
+msgid "Name"
+msgstr "名称"
+
+#: src/cli/cmd-detail.c:70
+msgid "Main name"
+msgstr "主名"
+
+#: src/cli/cmd-detail.c:71
+msgid "Platform"
+msgstr "平台"
+
+#: src/cli/cmd-detail.c:72
+msgid "Directory"
+msgstr "目录"
+
+#: src/cli/cmd-detail.c:74
+#, c-format
+msgid "Year: %d\n"
+msgstr "年份: %d\n"
+
+#: src/cli/cmd-detail.c:77
+#, c-format
+msgid "Players: %d\n"
+msgstr "玩家: %d\n"
+
+#: src/cli/cmd-detail.c:79
+#, c-format
+msgid "Rating: %.1f\n"
+msgstr "评分: %.1f\n"
+
+#: src/cli/cmd-detail.c:83
+msgid "Status"
+msgstr "状态"
+
+#: src/cli/cmd-detail.c:84
+msgid "Format"
+msgstr "格式"
+
+#: src/cli/cmd-detail.c:85
+msgid "DAT source"
+msgstr "DAT 来源"
+
+#: src/cli/cmd-detail.c:86
+msgid "Patch type"
+msgstr "补丁类型"
+
+#: src/cli/cmd-detail.c:87 src/cli/cmd-manage.c:205
+#, c-format
+msgid "Multi-disc: %s\n"
+msgstr "多碟: %s\n"
+
+#: src/cli/cmd-detail.c:88 src/cli/cmd-detail.c:90
+msgid "Yes"
+msgstr "是"
+
+#: src/cli/cmd-detail.c:88 src/cli/cmd-detail.c:90
+msgid "No"
+msgstr "否"
+
+#: src/cli/cmd-detail.c:89 src/cli/cmd-manage.c:206
+#, c-format
+msgid "Arcade: %s\n"
+msgstr "街机: %s\n"
+
+#: src/cli/cmd-detail.c:92
+#, c-format
+msgid "Description: %s\n"
+msgstr "简介: %s\n"
+
+#: src/cli/cmd-detail.c:95
+msgid "Tags:"
+msgstr "标签:"
+
+#: src/cli/cmd-detail.c:102
+#, c-format
+msgid "ROM files: %u; bytes: %s\n"
+msgstr "ROM: %u 个，%s 字节\n"
+
+#: src/cli/cmd-detail.c:109
+#, c-format
+msgid "  Disc %d"
+msgstr "  碟 %d"
+
+#: src/cli/cmd-detail.c:112
+#, c-format
+msgid "  %s bytes"
+msgstr "  %s 字节"
+
+#: src/cli/cmd-detail.c:121
+#, c-format
+msgid "Media files: %u; bytes: %s\n"
+msgstr "媒体: %u 个，%s 字节\n"
+
+#: src/cli/cmd-detail.c:131
+msgid "DAT matches:\n"
+msgstr "DAT 匹配:\n"
+
+#: src/cli/cmd-manage.c:41
+msgid "Also delete the game directory under the library root"
+msgstr "同时删除库目录下的游戏目录"
+
+#: src/cli/cmd-manage.c:42
+msgid "Library root"
+msgstr "库根目录"
+
+#: src/cli/cmd-manage.c:46
+msgid "- Delete a game record"
+msgstr "- 删除游戏记录"
+
+#: src/cli/cmd-manage.c:59
+msgid "Usage: rom-hamster delete <game-ID> [--with-files --root DIR]"
+msgstr "用法: rom-hamster delete <游戏ID> [--with-files --root DIR]"
+
+#: src/cli/cmd-manage.c:75
+#, c-format
+msgid "Delete failed: %s"
+msgstr "删除失败: %s"
+
+#: src/cli/cmd-manage.c:78
+msgid "Deleted\n"
+msgstr "已删除\n"
+
+#: src/cli/cmd-manage.c:86
+msgid "Display name"
+msgstr "显示名"
+
+#: src/cli/cmd-manage.c:91
+msgid "Description"
+msgstr "简介"
+
+#: src/cli/cmd-manage.c:93
+msgid "Patch type (empty string clears it)"
+msgstr "补丁类型（空串清除）"
+
+#: src/cli/cmd-manage.c:94
+msgid "Year (0 clears it)"
+msgstr "年份（0 清除）"
+
+#: src/cli/cmd-manage.c:95
+msgid "Players (0 clears it)"
+msgstr "玩家数（0 清除）"
+
+#: src/cli/cmd-manage.c:96
+msgid "Rating 0-10 (0 clears it)"
+msgstr "评分 0-10（0 清除）"
+
+#: src/cli/cmd-manage.c:100
+msgid "- Edit game metadata"
+msgstr "- 编辑游戏元数据"
+
+#: src/cli/cmd-manage.c:113
+msgid "Usage: rom-hamster edit <game-ID> [options]"
+msgstr "用法: rom-hamster edit <游戏ID> [选项]"
+
+#: src/cli/cmd-manage.c:125
+#, c-format
+msgid "Game not found: %s"
+msgstr "找不到游戏 %s"
+
+#: src/cli/cmd-manage.c:153
+#, c-format
+msgid "Update failed: %s"
+msgstr "更新失败: %s"
+
+#: src/cli/cmd-manage.c:156
+msgid "Updated\n"
+msgstr "已更新\n"
+
+#: src/cli/cmd-manage.c:167
+msgid "- Library statistics"
+msgstr "- 库统计"
+
+#: src/cli/cmd-manage.c:190
+msgid "Statistics failed"
+msgstr "统计失败"
+
+#: src/cli/cmd-manage.c:194
+#, c-format
+msgid "Games: %s\n"
+msgstr "游戏: %s\n"
+
+#: src/cli/cmd-manage.c:197
+#, c-format
+msgid "ROM files: %s; bytes: %s\n"
+msgstr "ROM: %s 个，%s 字节\n"
+
+#: src/cli/cmd-manage.c:202
+#, c-format
+msgid "Media files: %s; bytes: %s\n"
+msgstr "媒体: %s 个，%s 字节\n"
+
+#: src/cli/cmd-manage.c:207
+#, c-format
+msgid "With patches: %s\n"
+msgstr "有补丁: %s\n"
+
+#: src/cli/cmd-manage.c:208
+#, c-format
+msgid "DAT matched: %s\n"
+msgstr "DAT 命中: %s\n"
+
+#: src/cli/cmd-manage.c:209
+#, c-format
+msgid "Missing ROM records: %s\n"
+msgstr "无 ROM 记录: %s\n"
+
+#: src/cli/cmd-manage.c:213
+msgid ""
+"\n"
+"Platform\tGames\tROM files\tBytes\n"
+msgstr ""
+"\n"
+"平台\t游戏\tROM\t字节\n"
+
+#: src/cli/cmd-export.c:22
+msgid "Front-end specification .conf"
+msgstr "前端规格 .conf"
+
+#: src/cli/cmd-export.c:23
+msgid "Output directory"
+msgstr "输出目录"
+
+#: src/cli/cmd-export.c:24
+msgid "Library root (copy ROMs/media)"
+msgstr "库根目录（复制 ROM/媒体）"
+
+#: src/cli/cmd-export.c:26
+msgid "platforms.conf (optional)"
+msgstr "platforms.conf（可选）"
+
+#: src/cli/cmd-export.c:27
+msgid "Do not copy ROMs"
+msgstr "不复制 ROM"
+
+#: src/cli/cmd-export.c:28
+msgid "Do not copy media"
+msgstr "不复制媒体"
+
+#: src/cli/cmd-export.c:29
+msgid "Generate m3u for multi-disc games"
+msgstr "为多碟游戏生成 m3u"
+
+#: src/cli/cmd-export.c:33
+msgid "- Export a front-end manifest"
+msgstr "- 导出前端清单"
+
+#: src/cli/cmd-export.c:46
+msgid "Usage: rom-hamster export --frontend FILE --out DIR [--root DIR]"
+msgstr "用法: rom-hamster export --frontend FILE --out DIR [--root DIR]"
+
+#: src/cli/cmd-export.c:53
+msgid "Cannot load front-end specification"
+msgstr "无法加载前端规格"
+
+#: src/cli/cmd-export.c:65
+msgid "Failed to load platform rules"
+msgstr "平台规则加载失败"
+
+#: src/cli/cmd-export.c:99
+#, c-format
+msgid "Export failed: %s"
+msgstr "导出失败: %s"
+
+#: src/cli/cmd-export.c:104
+#, c-format
+msgid "Export complete: %u games, %u ROM files, %u media files, %u errors\n"
+msgstr "导出完成：游戏 %u，ROM %u，媒体 %u，错误 %u\n"

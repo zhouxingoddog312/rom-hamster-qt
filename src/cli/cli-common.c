@@ -2,6 +2,8 @@
 
 #include <glib.h>
 
+#include "i18n.h"
+
 void rh_cli_print(FILE *stream, const char *text)
 {
     if (text == NULL)
@@ -18,12 +20,17 @@ char *rh_cli_default_db(void)
     return g_strdup("romhamster.db");
 }
 
+char *rh_cli_format_int64(gint64 value)
+{
+    return g_strdup_printf("%" G_GINT64_FORMAT, value);
+}
+
 RhStore *rh_cli_open_store(const char *db, RhErr *out_err)
 {
     RhErr err = RH_OK;
     RhStore *store = store_open(db, &err);
     if (store == NULL) {
-        gchar *message = g_strdup_printf("无法打开数据库 %s：%s\n", db,
+        gchar *message = g_strdup_printf(_("Cannot open database %s: %s\n"), db,
                                          rh_err_str(err));
         rh_cli_print(stderr, message);
         g_free(message);

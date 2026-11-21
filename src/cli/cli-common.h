@@ -15,6 +15,9 @@ void rh_cli_print(FILE *stream, const char *text);
 /* --db 的默认值：环境变量 ROM_HAMSTER_DB，否则 ./romhamster.db */
 char *rh_cli_default_db(void);
 
+/* 先把 64 位整数转成文本，避免 xgettext 截断含 G_GINT64_FORMAT 的词条。 */
+char *rh_cli_format_int64(gint64 value);
+
 /* 打开库；失败时向 stderr 打印一行并返回 NULL。 */
 RhStore *rh_cli_open_store(const char *db, RhErr *out_err);
 

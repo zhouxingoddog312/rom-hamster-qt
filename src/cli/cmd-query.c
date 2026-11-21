@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "cli-common.h"
+#include "i18n.h"
 #include "query.h"
 
 static gchar *opt_db = NULL;
@@ -29,39 +30,40 @@ static gboolean opt_desc = FALSE;
 int rh_cmd_list(int argc, char **argv)
 {
     GOptionEntry entries[] = {
-        { "db", 0, 0, G_OPTION_ARG_FILENAME, &opt_db, "数据库文件", "PATH" },
-        { "platform", 0, 0, G_OPTION_ARG_STRING, &opt_platform, "平台 ID", "ID" },
-        { "genre", 0, 0, G_OPTION_ARG_STRING, &opt_genre, "类型", "TEXT" },
-        { "developer", 0, 0, G_OPTION_ARG_STRING, &opt_developer, "开发商", "TEXT" },
-        { "publisher", 0, 0, G_OPTION_ARG_STRING, &opt_publisher, "发行商", "TEXT" },
-        { "region", 0, 0, G_OPTION_ARG_STRING, &opt_region, "区域", "TEXT" },
+        { "db", 0, 0, G_OPTION_ARG_FILENAME, &opt_db, N_("Database file"), "PATH" },
+        { "platform", 0, 0, G_OPTION_ARG_STRING, &opt_platform, N_("Platform ID"), "ID" },
+        { "genre", 0, 0, G_OPTION_ARG_STRING, &opt_genre, N_("Genre"), "TEXT" },
+        { "developer", 0, 0, G_OPTION_ARG_STRING, &opt_developer, N_("Developer"), "TEXT" },
+        { "publisher", 0, 0, G_OPTION_ARG_STRING, &opt_publisher, N_("Publisher"), "TEXT" },
+        { "region", 0, 0, G_OPTION_ARG_STRING, &opt_region, N_("Region"), "TEXT" },
         { "patch-type", 0, 0, G_OPTION_ARG_STRING, &opt_patch_type,
-          "补丁类型 generic/platform/mixed", "TYPE" },
+          N_("Patch type: generic/platform/mixed"), "TYPE" },
         { "status", 0, 0, G_OPTION_ARG_STRING, &opt_status,
-          "ROM 状态 good/baddump/unknown", "STATUS" },
+          N_("ROM status: good/baddump/unknown"), "STATUS" },
         { "format", 0, 0, G_OPTION_ARG_STRING, &opt_format,
-          "ROM 格式 raw/zip/7z/chd/cso/wbfs", "FMT" },
-        { "search", 0, 0, G_OPTION_ARG_STRING, &opt_search, "名称子串", "KW" },
-        { "tag", 0, 0, G_OPTION_ARG_STRING_ARRAY, &opt_tags, "标签（可多次）", "TAG" },
-        { "year-from", 0, 0, G_OPTION_ARG_INT, &opt_year_from, "起始年份", "YEAR" },
-        { "year-to", 0, 0, G_OPTION_ARG_INT, &opt_year_to, "结束年份", "YEAR" },
-        { "multi", 0, 0, G_OPTION_ARG_NONE, &opt_multi, "只看多碟", NULL },
-        { "no-multi", 0, 0, G_OPTION_ARG_NONE, &opt_no_multi, "只看单碟", NULL },
-        { "has-patch", 0, 0, G_OPTION_ARG_NONE, &opt_has_patch, "只看有补丁", NULL },
-        { "no-patch", 0, 0, G_OPTION_ARG_NONE, &opt_no_patch, "只看无补丁", NULL },
+          N_("ROM format: raw/zip/7z/chd/cso/wbfs"), "FMT" },
+        { "search", 0, 0, G_OPTION_ARG_STRING, &opt_search, N_("Name substring"), "KW" },
+        { "tag", 0, 0, G_OPTION_ARG_STRING_ARRAY, &opt_tags, N_("Tag (repeatable)"), "TAG" },
+        { "year-from", 0, 0, G_OPTION_ARG_INT, &opt_year_from, N_("First year"), "YEAR" },
+        { "year-to", 0, 0, G_OPTION_ARG_INT, &opt_year_to, N_("Last year"), "YEAR" },
+        { "multi", 0, 0, G_OPTION_ARG_NONE, &opt_multi, N_("Multi-disc games only"), NULL },
+        { "no-multi", 0, 0, G_OPTION_ARG_NONE, &opt_no_multi, N_("Single-disc games only"), NULL },
+        { "has-patch", 0, 0, G_OPTION_ARG_NONE, &opt_has_patch, N_("Games with patches only"), NULL },
+        { "no-patch", 0, 0, G_OPTION_ARG_NONE, &opt_no_patch, N_("Games without patches only"), NULL },
         { "sort", 0, 0, G_OPTION_ARG_STRING, &opt_sort,
-          "name/rating/year/discs", "KEY" },
-        { "desc", 0, 0, G_OPTION_ARG_NONE, &opt_desc, "降序", NULL },
-        { "limit", 0, 0, G_OPTION_ARG_INT, &opt_limit, "返回条数（0=200）", "N" },
-        { "offset", 0, 0, G_OPTION_ARG_INT, &opt_offset, "跳过条数", "N" },
+          N_("Sort key: name/rating/year/discs"), "KEY" },
+        { "desc", 0, 0, G_OPTION_ARG_NONE, &opt_desc, N_("Descending order"), NULL },
+        { "limit", 0, 0, G_OPTION_ARG_INT, &opt_limit, N_("Result limit (0=200)"), "N" },
+        { "offset", 0, 0, G_OPTION_ARG_INT, &opt_offset, N_("Results to skip"), "N" },
         { NULL, 0, 0, 0, 0, NULL, NULL }
     };
 
-    GOptionContext *ctx = g_option_context_new("- 检索游戏");
+    GOptionContext *ctx = g_option_context_new(_("- Search games"));
     g_option_context_add_main_entries(ctx, entries, NULL);
+    g_option_context_set_translation_domain(ctx, GETTEXT_PACKAGE);
     GError *error = NULL;
     if (!g_option_context_parse(ctx, &argc, &argv, &error)) {
-        gchar *msg = g_strdup_printf("参数错误: %s", error->message);
+        gchar *msg = g_strdup_printf(_("Option error: %s"), error->message);
         g_error_free(error);
         g_option_context_free(ctx);
         return rh_cli_error(msg);
@@ -69,7 +71,7 @@ int rh_cmd_list(int argc, char **argv)
     g_option_context_free(ctx);
 
     if (!rh_query_sort_valid(opt_sort))
-        return rh_cli_error("--sort 只接受 name/rating/year/discs");
+        return rh_cli_error(_("--sort accepts only name/rating/year/discs"));
 
     gchar *db = opt_db != NULL ? g_strdup(opt_db) : rh_cli_default_db();
     RhErr err = RH_OK;
@@ -103,7 +105,7 @@ int rh_cmd_list(int argc, char **argv)
     RhQueryResult *result = rh_query_run(store, &filter, &err);
     if (result == NULL) {
         store_close(store);
-        gchar *msg = g_strdup_printf("检索失败: %s", rh_err_str(err));
+        gchar *msg = g_strdup_printf(_("Query failed: %s"), rh_err_str(err));
         int rc = rh_cli_error(msg);
         g_free(msg);
         return rc;
@@ -126,10 +128,12 @@ int rh_cmd_list(int argc, char **argv)
         g_free(rating);
     }
 
-    gchar *summary = g_strdup_printf("共 %" G_GINT64_FORMAT " 条，显示 %u 条\n",
-                                     result->total, result->games->len);
+    gchar *total = rh_cli_format_int64(result->total);
+    gchar *summary = g_strdup_printf(_("Total: %s; showing %u\n"),
+                                     total, result->games->len);
     rh_cli_print(stderr, summary);
     g_free(summary);
+    g_free(total);
 
     rh_query_result_free(result);
     store_close(store);

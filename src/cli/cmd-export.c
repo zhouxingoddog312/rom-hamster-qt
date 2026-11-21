@@ -2,6 +2,7 @@
 
 #include "cli-common.h"
 #include "export.h"
+#include "i18n.h"
 #include "platform.h"
 
 static gchar *opt_db = NULL;
@@ -16,24 +17,25 @@ static gboolean opt_m3u = FALSE;
 int rh_cmd_export(int argc, char **argv)
 {
     GOptionEntry entries[] = {
-        { "db", 0, 0, G_OPTION_ARG_FILENAME, &opt_db, "数据库文件", "PATH" },
+        { "db", 0, 0, G_OPTION_ARG_FILENAME, &opt_db, N_("Database file"), "PATH" },
         { "frontend", 0, 0, G_OPTION_ARG_FILENAME, &opt_frontend,
-          "前端规格 .conf", "FILE" },
-        { "out", 0, 0, G_OPTION_ARG_FILENAME, &opt_out, "输出目录", "DIR" },
-        { "root", 0, 0, G_OPTION_ARG_FILENAME, &opt_root, "库根目录（复制 ROM/媒体）", "DIR" },
+          N_("Front-end specification .conf"), "FILE" },
+        { "out", 0, 0, G_OPTION_ARG_FILENAME, &opt_out, N_("Output directory"), "DIR" },
+        { "root", 0, 0, G_OPTION_ARG_FILENAME, &opt_root, N_("Library root (copy ROMs/media)"), "DIR" },
         { "platforms", 0, 0, G_OPTION_ARG_FILENAME, &opt_platforms,
-          "platforms.conf（可选）", "FILE" },
-        { "no-roms", 0, 0, G_OPTION_ARG_NONE, &opt_no_roms, "不复制 ROM", NULL },
-        { "no-media", 0, 0, G_OPTION_ARG_NONE, &opt_no_media, "不复制媒体", NULL },
-        { "m3u", 0, 0, G_OPTION_ARG_NONE, &opt_m3u, "为多碟游戏生成 m3u", NULL },
+          N_("platforms.conf (optional)"), "FILE" },
+        { "no-roms", 0, 0, G_OPTION_ARG_NONE, &opt_no_roms, N_("Do not copy ROMs"), NULL },
+        { "no-media", 0, 0, G_OPTION_ARG_NONE, &opt_no_media, N_("Do not copy media"), NULL },
+        { "m3u", 0, 0, G_OPTION_ARG_NONE, &opt_m3u, N_("Generate m3u for multi-disc games"), NULL },
         { NULL, 0, 0, 0, 0, NULL, NULL }
     };
 
-    GOptionContext *ctx = g_option_context_new("- 导出前端清单");
+    GOptionContext *ctx = g_option_context_new(_("- Export a front-end manifest"));
     g_option_context_add_main_entries(ctx, entries, NULL);
+    g_option_context_set_translation_domain(ctx, GETTEXT_PACKAGE);
     GError *error = NULL;
     if (!g_option_context_parse(ctx, &argc, &argv, &error)) {
-        gchar *msg = g_strdup_printf("参数错误: %s", error->message);
+        gchar *msg = g_strdup_printf(_("Option error: %s"), error->message);
         g_error_free(error);
         g_option_context_free(ctx);
         return rh_cli_error(msg);
@@ -41,14 +43,14 @@ int rh_cmd_export(int argc, char **argv)
     g_option_context_free(ctx);
 
     if (opt_frontend == NULL || opt_out == NULL)
-        return rh_cli_error("用法: rom-hamster export --frontend FILE --out DIR [--root DIR]");
+        return rh_cli_error(_("Usage: rom-hamster export --frontend FILE --out DIR [--root DIR]"));
 
     /* 先加载一次，把「文件:行号」错误直接展示给用户 */
     RhErr err = RH_OK;
     gchar *message = NULL;
     RhExportSpec *spec = rh_export_spec_load(opt_frontend, &err, &message);
     if (spec == NULL) {
-        int rc = rh_cli_error(message != NULL ? message : "无法加载前端规格");
+        int rc = rh_cli_error(message != NULL ? message : _("Cannot load front-end specification"));
         g_free(message);
         return rc;
     }
@@ -60,7 +62,7 @@ int rh_cmd_export(int argc, char **argv)
         gchar *rules_msg = NULL;
         rules = rh_platform_rules_load(opt_platforms, &err, &rules_msg);
         if (rules == NULL) {
-            int rc = rh_cli_error(rules_msg != NULL ? rules_msg : "平台规则加载失败");
+            int rc = rh_cli_error(rules_msg != NULL ? rules_msg : _("Failed to load platform rules"));
             g_free(rules_msg);
             return rc;
         }
@@ -94,12 +96,12 @@ int rh_cmd_export(int argc, char **argv)
     rh_platform_rules_free(rules);
 
     if (err != RH_OK) {
-        gchar *msg = g_strdup_printf("导出失败: %s", rh_err_str(err));
+        gchar *msg = g_strdup_printf(_("Export failed: %s"), rh_err_str(err));
         return rh_cli_error(msg);
     }
 
     gchar *summary = g_strdup_printf(
-        "导出完成：游戏 %u，ROM %u，媒体 %u，错误 %u\n",
+        _("Export complete: %u games, %u ROM files, %u media files, %u errors\n"),
         stats.games, stats.roms, stats.media, stats.errors);
     rh_cli_print(stdout, summary);
     g_free(summary);
