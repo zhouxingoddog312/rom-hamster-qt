@@ -25,7 +25,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build pkg-config util-linux \
-            libglib2.0-dev libsqlite3-dev libarchive-dev libxml2-dev zlib1g-dev
+            libglib2.0-dev libsqlite3-dev libarchive-dev libxml2-dev zlib1g-dev \
+            libcurl4-openssl-dev
       - name: Configure
         run: >
           cmake -S . -B build/linux-cli -G Ninja
@@ -46,6 +47,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build pkg-config util-linux \
             libglib2.0-dev libsqlite3-dev libarchive-dev libxml2-dev zlib1g-dev \
+            libcurl4-openssl-dev \
             libgl1-mesa-dev libxkbcommon-x11-0
       # 发行版 Qt 低于 6.8，用 aqt 装与本地一致的版本
       - uses: jurplel/install-qt-action@v4
@@ -83,6 +85,7 @@ jobs:
             mingw-w64-x86_64-libarchive
             mingw-w64-x86_64-libxml2
             mingw-w64-x86_64-zlib
+            mingw-w64-x86_64-curl
       - name: Configure
         run: >
           cmake -S . -B build/windows-cli -G Ninja
@@ -114,6 +117,7 @@ jobs:
             mingw-w64-x86_64-libarchive
             mingw-w64-x86_64-libxml2
             mingw-w64-x86_64-zlib
+            mingw-w64-x86_64-curl
             mingw-w64-x86_64-qt6-base
       - name: Configure
         run: >
