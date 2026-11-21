@@ -258,6 +258,97 @@ static void test_cancel(gpointer fixture, gconstpointer user_data)
     g_free(remote);
 }
 
+static void test_retry_attempts(gpointer fixture, gconstpointer user_data)
+{
+    (void)fixture;
+    (void)user_data;
+    gchar *missing = g_build_filename(tmp_dir, "missing.dat", NULL);
+    gchar *url = g_filename_to_uri(missing, NULL, NULL);
+    RhDatSource *source = make_source(url, NULL, NULL);
+    RhDatFetchResult result;
+
+    RhDatFetchOptions options = { 0 };
+    options.retries = 2;
+    RhErr err = rh_dat_fetch(source, cache_dir, &options, &result);
+    g_assert_cmpint(err, ==, RH_ERR_IO);
+    g_assert_cmpint(result.mirrors_tried, ==, 1);
+    g_assert_cmpuint(result.attempts, ==, 3);
+    g_assert_nonnull(result.message);
+
+    rh_dat_fetch_result_clear(&result);
+    rh_dat_source_free(source);
+    g_free(url);
+    g_free(missing);
+}
+
+static void test_resume_partial(gpointer fixture, gconstpointer user_data)
+{
+    (void)fixture;
+    (void)user_data;
+    gchar sha1[41];
+    gchar *remote = write_remote("abcdefghij", sha1);
+    gchar *url = g_filename_to_uri(remote, NULL, NULL);
+    RhDatSource *source = make_source(url, NULL, sha1);
+
+    gchar *local = local_path();
+    gchar *part = g_strconcat(local, ".part", NULL);
+    g_mkdir_with_parents(cache_dir, 0755);
+    g_assert_true(g_file_set_contents(part, "abcde", -1, NULL));
+
+    RhDatFetchResult result;
+    RhErr err = rh_dat_fetch(source, cache_dir, NULL, &result);
+    g_assert_cmpint(err, ==, RH_OK);
+    g_assert_true(result.installed);
+    g_assert_cmpuint(result.resumed_from, ==, 5);
+    g_assert_cmpuint(result.attempts, ==, 1);
+
+    gchar *content = NULL;
+    g_assert_true(g_file_get_contents(local, &content, NULL, NULL));
+    g_assert_cmpstr(content, ==, "abcdefghij");
+    g_free(content);
+    g_assert_false(g_file_test(part, G_FILE_TEST_EXISTS));
+
+    rh_dat_fetch_result_clear(&result);
+    rh_dat_source_free(source);
+    g_free(part);
+    g_free(local);
+    g_free(url);
+    g_free(remote);
+}
+
+static void test_stale_part_ignored_without_sha1(gpointer fixture,
+                                                 gconstpointer user_data)
+{
+    (void)fixture;
+    (void)user_data;
+    gchar *remote = write_remote("fresh", NULL);
+    gchar *url = g_filename_to_uri(remote, NULL, NULL);
+    RhDatSource *source = make_source(url, NULL, NULL);
+
+    gchar *local = local_path();
+    gchar *part = g_strconcat(local, ".part", NULL);
+    g_mkdir_with_parents(cache_dir, 0755);
+    g_assert_true(g_file_set_contents(part, "stale-content", -1, NULL));
+
+    RhDatFetchResult result;
+    RhErr err = rh_dat_fetch(source, cache_dir, NULL, &result);
+    g_assert_cmpint(err, ==, RH_OK);
+    g_assert_true(result.installed);
+    g_assert_cmpuint(result.resumed_from, ==, 0);
+
+    gchar *content = NULL;
+    g_assert_true(g_file_get_contents(local, &content, NULL, NULL));
+    g_assert_cmpstr(content, ==, "fresh");
+    g_free(content);
+
+    rh_dat_fetch_result_clear(&result);
+    rh_dat_source_free(source);
+    g_free(part);
+    g_free(local);
+    g_free(url);
+    g_free(remote);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -273,6 +364,12 @@ int main(int argc, char **argv)
                test_mirror_fallback, teardown);
     g_test_add("/dat-fetch/cancel", void, NULL, setup,
                test_cancel, teardown);
+    g_test_add("/dat-fetch/retry-attempts", void, NULL, setup,
+               test_retry_attempts, teardown);
+    g_test_add("/dat-fetch/resume-partial", void, NULL, setup,
+               test_resume_partial, teardown);
+    g_test_add("/dat-fetch/stale-part-no-sha1", void, NULL, setup,
+               test_stale_part_ignored_without_sha1, teardown);
 
     return g_test_run();
 }

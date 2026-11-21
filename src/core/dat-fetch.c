@@ -85,8 +85,21 @@ static int xferinfo_cb(void *user_data, curl_off_t dltotal, curl_off_t dlnow,
     return 0;
 }
 
-static RhErr download_to(const char *url, const char *temp_path,
-                         const RhDatFetchOptions *options, gchar **out_message)
+static guint64 partial_size(const char *path)
+{
+    GStatBuf st;
+    if (g_stat(path, &st) != 0 || st.st_size <= 0)
+        return 0;
+    return (guint64)st.st_size;
+}
+
+/*
+ * 一次下载尝试。offset > 0 时请求从该偏移续传；服务器不支持 Range 时
+ * 置 range_error 并返回 RH_ERR_IO，由调用方截断后从头再来。
+ */
+static RhErr download_once(const char *url, const char *temp_path,
+                           guint64 offset, const RhDatFetchOptions *options,
+                           gboolean *range_error, gchar **out_message)
 {
     ensure_global_init();
 
@@ -97,7 +110,7 @@ static RhErr download_to(const char *url, const char *temp_path,
         return RH_ERR_NOMEM;
     }
 
-    FILE *fp = g_fopen(temp_path, "wb");
+    FILE *fp = g_fopen(temp_path, offset > 0 ? "ab" : "wb");
     if (fp == NULL) {
         curl_easy_cleanup(curl);
         if (out_message != NULL)
@@ -135,6 +148,8 @@ static RhErr download_to(const char *url, const char *temp_path,
     curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, xferinfo_cb);
     curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &sink);
     curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, errbuf);
+    if (offset > 0)
+        curl_easy_setopt(curl, CURLOPT_RESUME_FROM_LARGE, (curl_off_t)offset);
 #if LIBCURL_VERSION_NUM >= 0x075500
     curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "http,https,file");
 #else
@@ -148,6 +163,11 @@ static RhErr download_to(const char *url, const char *temp_path,
     if (fclose(fp) != 0 && rc == CURLE_OK)
         rc = CURLE_WRITE_ERROR;
 
+    if (rc == CURLE_RANGE_ERROR && offset > 0) {
+        if (range_error != NULL)
+            *range_error = TRUE;
+        return RH_ERR_IO;
+    }
     if (rc != CURLE_OK) {
         if (out_message != NULL) {
             *out_message = g_strdup(errbuf[0] != '\0'
@@ -156,6 +176,40 @@ static RhErr download_to(const char *url, const char *temp_path,
         return rc == CURLE_ABORTED_BY_CALLBACK ? RH_ERR_CANCELLED : RH_ERR_IO;
     }
     return RH_OK;
+}
+
+static RhErr download_to(const char *url, const char *temp_path,
+                         const RhDatFetchOptions *options, gboolean resume,
+                         guint64 *out_resumed_from, gchar **out_message)
+{
+    guint64 offset = resume ? partial_size(temp_path) : 0;
+    if (out_resumed_from != NULL)
+        *out_resumed_from = offset;
+
+    for (;;) {
+        gboolean range_error = FALSE;
+        gchar *message = NULL;
+        RhErr err = download_once(url, temp_path, offset, options,
+                                  &range_error, &message);
+        if (err == RH_OK)
+            return RH_OK;
+
+        if (range_error) {
+            /* 服务器忽略了 Range：丢掉半份文件，从头重新请求一次。 */
+            g_free(message);
+            g_unlink(temp_path);
+            offset = 0;
+            if (out_resumed_from != NULL)
+                *out_resumed_from = 0;
+            continue;
+        }
+
+        if (out_message != NULL)
+            *out_message = message;
+        else
+            g_free(message);
+        return err;
+    }
 }
 
 static RhErr sha1_of(const char *path, gchar out_sha1[41], guint64 *out_size)
@@ -227,78 +281,90 @@ RhErr rh_dat_fetch(const RhDatSource *source, const char *dir,
 
     RhErr last_err = RH_ERR_IO;
     gchar *last_message = NULL;
+    /* 清单带 sha1 时才能判断残留 .part 是否属于同一版本，也只有这时续传
+     * 才不会把旧文件拼到新下载上。 */
+    const gboolean can_resume = source->sha1 != NULL;
+    const guint retries = options->retries > 0 ? options->retries : 1;
 
     for (guint i = 0; i < source->urls->len; i++) {
         const gchar *url = g_ptr_array_index(source->urls, i);
         out->mirrors_tried++;
 
-        gchar *message = NULL;
-        RhErr err = download_to(url, temp_path, options, &message);
-        if (err != RH_OK) {
-            g_unlink(temp_path);
-            set_message(&last_message, message);
-            last_err = err;
-            if (err == RH_ERR_CANCELLED)
-                break;
-            continue;
-        }
+        for (guint attempt = 0; attempt <= retries; attempt++) {
+            gchar *message = NULL;
+            guint64 resumed_from = 0;
+            out->attempts++;
 
-        gchar sha1[41] = { 0 };
-        guint64 size = 0;
-        err = sha1_of(temp_path, sha1, &size);
-        if (err != RH_OK) {
-            g_unlink(temp_path);
-            g_free(message);
-            set_message(&last_message,
-                        g_strdup("cannot read downloaded file"));
-            last_err = err;
-            continue;
-        }
+            RhErr err = download_to(url, temp_path, options, can_resume,
+                                    &resumed_from, &message);
+            if (err != RH_OK) {
+                set_message(&last_message, message);
+                last_err = err;
+                if (err == RH_ERR_CANCELLED) {
+                    g_unlink(temp_path);
+                    goto out;
+                }
+                continue;
+            }
 
-        if (source->sha1 != NULL &&
-            g_ascii_strcasecmp(sha1, source->sha1) != 0) {
-            g_unlink(temp_path);
-            g_free(message);
-            set_message(&last_message,
-                        g_strdup_printf("sha1 mismatch: expected %s, got %s",
-                                        source->sha1, sha1));
-            last_err = RH_ERR_IO;
-            continue;
-        }
+            gchar sha1[41] = { 0 };
+            guint64 size = 0;
+            err = sha1_of(temp_path, sha1, &size);
+            if (err != RH_OK) {
+                g_unlink(temp_path);
+                set_message(&last_message,
+                            g_strdup("cannot read downloaded file"));
+                last_err = err;
+                continue;
+            }
 
-        g_free(last_message);
-        last_message = NULL;
+            if (source->sha1 != NULL &&
+                g_ascii_strcasecmp(sha1, source->sha1) != 0) {
+                /* 续传的起点可能与远端已不是同一版本：丢掉重下一次。 */
+                g_unlink(temp_path);
+                set_message(&last_message,
+                            g_strdup_printf("sha1 mismatch: expected %s, got %s",
+                                            source->sha1, sha1));
+                last_err = RH_ERR_IO;
+                continue;
+            }
 
-        out->bytes = size;
-        memcpy(out->sha1, sha1, 41);
-        out->url = g_strdup(url);
+            g_free(last_message);
+            last_message = NULL;
 
-        gboolean changed = !have_local ||
-            g_ascii_strcasecmp(sha1, local_sha1) != 0;
-        out->changed = changed;
+            out->bytes = size;
+            out->resumed_from = resumed_from;
+            memcpy(out->sha1, sha1, 41);
+            out->url = g_strdup(url);
 
-        if (!changed || options->check_only) {
-            g_unlink(temp_path);
-            out->installed = FALSE;
+            gboolean changed = !have_local ||
+                g_ascii_strcasecmp(sha1, local_sha1) != 0;
+            out->changed = changed;
+
+            if (!changed || options->check_only) {
+                g_unlink(temp_path);
+                out->installed = FALSE;
+                g_free(final_path);
+                g_free(temp_path);
+                return RH_OK;
+            }
+
+            if (g_rename(temp_path, final_path) != 0) {
+                g_unlink(temp_path);
+                out->message = g_strdup("cannot replace the existing DAT file");
+                g_free(final_path);
+                g_free(temp_path);
+                return RH_ERR_IO;
+            }
+
+            out->installed = TRUE;
             g_free(final_path);
             g_free(temp_path);
             return RH_OK;
         }
-
-        if (g_rename(temp_path, final_path) != 0) {
-            g_unlink(temp_path);
-            out->message = g_strdup("cannot replace the existing DAT file");
-            g_free(final_path);
-            g_free(temp_path);
-            return RH_ERR_IO;
-        }
-
-        out->installed = TRUE;
-        g_free(final_path);
-        g_free(temp_path);
-        return RH_OK;
     }
 
+out:
     g_free(final_path);
     g_free(temp_path);
     out->message = last_message;
