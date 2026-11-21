@@ -2,6 +2,7 @@
 #include <QCommandLineParser>
 #include <QDesktopServices>
 #include <QDir>
+#include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QIcon>
@@ -16,11 +17,17 @@
 
 #include <cstdio>
 #include <cstring>
+#include <string>
+#include <vector>
 
 #include "core-bridge.h"
 #include "rh-version.h"
 #include "version-check.h"
 #include "window-main.h"
+
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 
 #ifndef RH_UPDATE_CHECK_URL
 #define RH_UPDATE_CHECK_URL ""
@@ -118,10 +125,43 @@ void installTranslator(QApplication &app)
     delete translator;
 }
 
+/*
+ * AppImage 的应急 CLI 入口（§9.3）：rom-hamster.AppImage --cli … 交给同目录的
+ * rom-hamster。图形会话损坏时仍能查库；找不到 CLI 时照常按 GUI 启动。
+ */
+#ifndef _WIN32
+bool runCliFallback(int argc, char *argv[])
+{
+    if (argc < 2 || std::strcmp(argv[1], "--cli") != 0)
+        return false;
+    // QApplication 还没创建，不能问 applicationDirPath()；读 /proc/self/exe
+    const QString self = QFileInfo(QStringLiteral("/proc/self/exe")).canonicalFilePath();
+    const QString cli = QFileInfo(self).dir().filePath(QStringLiteral("rom-hamster"));
+    if (self.isEmpty() || !QFileInfo::exists(cli))
+        return false;
+
+    std::vector<std::string> storage;
+    storage.emplace_back(QFile::encodeName(cli).constData());
+    for (int i = 2; i < argc; ++i)
+        storage.emplace_back(argv[i]);
+    std::vector<char *> args;
+    for (std::string &item : storage)
+        args.push_back(const_cast<char *>(item.c_str()));
+    args.push_back(nullptr);
+
+    execv(args[0], args.data());
+    return false; // execv 失败：按 GUI 继续启动
+}
+#endif
+
 } // namespace
 
 int main(int argc, char *argv[])
 {
+#ifndef _WIN32
+    if (runCliFallback(argc, argv))
+        return 0;
+#endif
     if (printVersionIfRequested(argc, argv))
         return 0;
 

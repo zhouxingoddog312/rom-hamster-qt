@@ -1063,7 +1063,7 @@ CI 入口是 `ci/build-matrix.sh`：在 Linux 上跑 `linux-cli`/`linux-gui` 两
 | `rom-hamster-gui` | `/usr/bin/rom-hamster-gui`、`/usr/lib/rom-hamster/qt6/`（Qt 6.8 Core/Gui/Widgets/Network + TLS 插件）、`.desktop`、`/usr/share/icons/hicolor/{16x16,32x32,48x48,256x256}/apps/rom-hamster.png`、`/usr/share/icons/hicolor/scalable/apps/rom-hamster.svg`、AppStream metainfo | `rom-hamster`（= 同一版本核心）, `libstdc++6`, `libgcc-s1`；**不依赖发行版 Qt** |
 | `rom-hamster-data` | `/usr/share/rom-hamster/platforms.conf`（只读出厂默认）、`frontends/*.conf`、`rom-hamster.conf.template`、`LICENSE`、`changelog` | — |
 
-GUI 二进制通过 `rpath` + `qt.conf` 指向 `/usr/lib/rom-hamster/qt6/` 与核心库目录，Qt 库不进入 `/usr/lib/x86_64-linux-gnu`，避免与系统 Qt 冲突。
+GUI 二进制通过 `rpath` + `qt.conf` 指向 `/usr/lib/rom-hamster/qt6/` 与核心库目录，Qt 库不进入 `/usr/lib/x86_64-linux-gnu`，避免与系统 Qt 冲突。`packaging/make-gui-deb.sh` 按此布局打包：核心库仍在 `rom-hamster` 包里（Debian multiarch 路径），GUI 包补一个 `/usr/lib/rom-hamster/libromham.so.1` 符号链接指向它，从而不必为打包重配 multiarch 构建树。
 
 **Linux · CLI tarball（免安装）**
 
@@ -1475,9 +1475,15 @@ MinGW 运行时，再用仅含 `System32` 的 PATH 自检）、`packaging/make-d
   语言 `QTranslator::load`）。尚无 `tr()` 词条，`.ts` 为空占位。
 - 修复：`qt_add_executable` 不会自动开启 `AUTORCC`，此前 `resources.qrc` 从未
   编进二进制（图标资源实际缺失）；现已在 GUI 目标打开 `AUTORCC`。
+- `packaging/make-gui-deb.sh`：GUI deb 自带 Qt 6（`/usr/lib/rom-hamster/qt6` +
+  平台/图片/TLS 插件 + `qt.conf`），只依赖 `rom-hamster` 包提供的核心库与数据；
+  `Depends` 由 `dpkg-shlibdeps` 计算，再过滤掉包内自带 Qt 的发行版包名。
+- `packaging/make-appimage.sh`：linuxdeploy + plugin-qt 生成单文件 GUI AppImage；
+  内含应急 CLI 入口（`rom-hamster.AppImage --cli …` 转发给同目录 CLI 二进制）。
 
-仍缺：GUI deb 包（自带 Qt 部署）、GUI AppImage、AppStream 截图、CLI 子命令
-词条与 GUI `tr()` 迁移、GUI `.qm` 词条翻译。
+仍缺：AppStream 截图、CLI 子命令词条与 GUI `tr()` 迁移、GUI `.qm` 词条翻译、
+AppImage 的 Ubuntu 22.04 构建基线复核（本轮用构建机发行版 Qt 6.10.2 验证管线，
+deb 的 glibc 下限同样取决于构建机）。
 安装/升级/卸载类验收与 §14.1 指标都需要实机，已延期。
 
 ### 14.1 M4 性能验收（量化）
