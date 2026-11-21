@@ -7,9 +7,11 @@
 #include <QIcon>
 #include <QLocalServer>
 #include <QLocalSocket>
+#include <QLocale>
 #include <QMessageBox>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QTranslator>
 #include <QUrl>
 
 #include <cstdio>
@@ -94,6 +96,28 @@ bool printVersionIfRequested(int argc, char *argv[])
     return false;
 }
 
+/*
+ * GUI 翻译（§11）：.qm 由 CMake 的 lrelease 规则编进资源 :/i18n。
+ * 加载失败（没有对应语言的 .qm，或构建时没装 lrelease）时保持源码字符串，
+ * 不产生任何提示。
+ */
+void installTranslator(QApplication &app)
+{
+    QTranslator *translator = new QTranslator(&app);
+    const QString locale = QLocale::system().name();
+    const QStringList candidates = {
+        locale,
+        locale.section(QLatin1Char('_'), 0, 0),
+    };
+    for (const QString &name : candidates) {
+        if (translator->load(QStringLiteral(":/i18n/rom-hamster_%1.qm").arg(name))) {
+            app.installTranslator(translator);
+            return;
+        }
+    }
+    delete translator;
+}
+
 } // namespace
 
 int main(int argc, char *argv[])
@@ -107,6 +131,7 @@ int main(int argc, char *argv[])
     QApplication::setApplicationVersion(QStringLiteral(RH_VERSION));
     QApplication::setOrganizationName(QStringLiteral("goddog312"));
     QApplication::setWindowIcon(applicationIcon());
+    installTranslator(app);
 
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("ROM 库管理器"));

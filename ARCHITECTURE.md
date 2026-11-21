@@ -1067,8 +1067,8 @@ GUI 二进制通过 `rpath` + `qt.conf` 指向 `/usr/lib/rom-hamster/qt6/` 与�
 
 **Linux · CLI tarball（免安装）**
 
-- `rom-hamster-<ver>-linux-x86_64.tar.gz`：`bin/rom-hamster`、`lib/libromham-1.0.so`、`share/rom-hamster/`、`LICENSE`。**不含 Qt**。
-- 解压后设 `LD_LIBRARY_PATH=$PWD/lib` 或走 `bin/rom-hamster` 的 `$ORIGIN` rpath 即可运行；面向不能/不愿装 deb 的环境。
+- `rom-hamster-<ver>-linux-x86_64.tar.gz`：`bin/rom-hamster`、`lib/rom-hamster/libromham.so.1`（实文件 `libromham.so.1.0.0`）、`share/rom-hamster/`、`share/man/man1/`、`share/locale/zh_CN/`、`LICENSE`、`README.md`。**不含 Qt**，也不带 `etc/`（`rh-path` 读的是绝对路径 `/etc/rom-hamster`，包内那份不会被读到）。
+- 解压后直接运行 `bin/rom-hamster` 即可（`$ORIGIN` rpath 指向包内 `lib/rom-hamster`）；面向不能/不愿装 deb 的环境。
 - 只提供 CLI；GUI 的免安装形态用 AppImage。
 
 **Linux · AppImage（GUI 单包）**
@@ -1460,9 +1460,24 @@ MinGW 运行时，再用仅含 `System32` 的 PATH 自检）、`packaging/make-d
 - 新增 `gui/version` 用例，双端均不依赖显示环境。
 - 重新打包并验证：Windows CLI zip 带 14 个 MinGW DLL，GUI zip 带 29 个 DLL 加
   Qt 部署；两个包在仅含 `System32` 的 PATH 下 `--version` 均返回 0。
+- `packaging/make-tarball.sh`：`cmake --install` 到临时前缀后打
+  `dist/rom-hamster-<ver>-linux-x86_64.tar.gz`，解压后仅靠 `$ORIGIN` rpath
+  自检 `bin/rom-hamster --version`；`packaging/make-checksums.sh` 生成
+  `dist/SHA256SUMS`。
+- `packaging/windows/rom-hamster.iss` + `packaging/windows/make-setup.ps1`：
+  Inno Setup 脚本（固定 AppId、`%ProgramFiles%\rom-hamster`、开始菜单、可选
+  PATH、卸载保留 `%APPDATA%`），编译出 `dist/rom-hamster-<ver>-win64-setup.exe`。
+- CLI gettext 接入（`src/cli/i18n.c`，msgid 英文，`po/zh_CN.po` 由 msgfmt 编成
+  `share/locale/zh_CN/LC_MESSAGES/rom-hamster.mo`）。目前词条覆盖 `--version`、
+  `help`、未知命令与 `--version` 选项说明；子命令文案仍为源码内中文，待逐步迁移。
+  Windows 未设 `LANG` 时按界面语言补 `zh_CN`。
+- GUI 翻译管线（`i18n/*.ts` → `lrelease` → 资源 `:/i18n/*.qm`，启动时按系统
+  语言 `QTranslator::load`）。尚无 `tr()` 词条，`.ts` 为空占位。
+- 修复：`qt_add_executable` 不会自动开启 `AUTORCC`，此前 `resources.qrc` 从未
+  编进二进制（图标资源实际缺失）；现已在 GUI 目标打开 `AUTORCC`。
 
-仍缺：Inno Setup 安装包、GUI deb 包（依赖自带 Qt 部署）、CLI tarball、
-GUI AppImage、AppStream 截图、CLI gettext 与 GUI `.qm`、SHA-256 清单。
+仍缺：GUI deb 包（自带 Qt 部署）、GUI AppImage、AppStream 截图、CLI 子命令
+词条与 GUI `tr()` 迁移、GUI `.qm` 词条翻译。
 安装/升级/卸载类验收与 §14.1 指标都需要实机，已延期。
 
 ### 14.1 M4 性能验收（量化）

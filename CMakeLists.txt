@@ -106,6 +106,7 @@ endif()
 # ---------------------------------------------------------------------------
 add_executable(rom-hamster
     src/cli/main.c
+    src/cli/i18n.c
     src/cli/cli-common.c
     src/cli/cmd-query.c
     src/cli/cmd-detail.c
@@ -130,6 +131,41 @@ if(RH_GUI)
     endif()
 
     qt_standard_project_setup()
+    # qt_add_executable 不会自动打开 AUTORCC；不打开时 .qrc 只是普通源文件，
+    # 图标与翻译资源都不会被编译进二进制。
+    set(CMAKE_AUTORCC ON)
+
+    # Qt 翻译（§11）：i18n/*.ts → .qm → 资源 :/i18n/*.qm。
+    # lrelease 不在 PATH 时跳过，GUI 保持源码里的字符串；装上 Qt 工具后自动生效。
+    set(RH_QM_FILES)
+    set(RH_TRANSLATIONS_QRC "${CMAKE_BINARY_DIR}/i18n/translations.qrc")
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/i18n")
+    set(RH_QRC_CONTENT "<RCC>\n  <qresource prefix=\"/i18n\">\n")
+    find_program(RH_LRELEASE NAMES lrelease lrelease-qt6)
+    if(RH_LRELEASE)
+        file(GLOB RH_TS_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/i18n/*.ts")
+        foreach(ts_file ${RH_TS_FILES})
+            get_filename_component(ts_name "${ts_file}" NAME_WE)
+            set(qm_file "${CMAKE_BINARY_DIR}/i18n/${ts_name}.qm")
+            add_custom_command(
+                OUTPUT "${qm_file}"
+                COMMAND "${RH_LRELEASE}" "${ts_file}" -qm "${qm_file}"
+                DEPENDS "${ts_file}"
+                COMMENT "lrelease ${ts_name}.ts"
+                VERBATIM
+            )
+            list(APPEND RH_QM_FILES "${qm_file}")
+            string(APPEND RH_QRC_CONTENT
+                "    <file alias=\"${ts_name}.qm\">${qm_file}</file>\n")
+        endforeach()
+        if(RH_QM_FILES)
+            add_custom_target(rom-hamster-qm ALL DEPENDS ${RH_QM_FILES})
+        endif()
+    else()
+        message(STATUS "未找到 lrelease：跳过 GUI 翻译编译")
+    endif()
+    string(APPEND RH_QRC_CONTENT "  </qresource>\n</RCC>\n")
+    file(WRITE "${RH_TRANSLATIONS_QRC}" "${RH_QRC_CONTENT}")
 
     qt_add_executable(rom-hamster-gui
         src/gui/main.cpp
@@ -140,7 +176,12 @@ if(RH_GUI)
         src/gui/import-job.cpp
         src/gui/version-check.cpp
         resources/resources.qrc
+        ${RH_TRANSLATIONS_QRC}
+        ${RH_QM_FILES}
     )
+    if(TARGET rom-hamster-qm)
+        add_dependencies(rom-hamster-gui rom-hamster-qm)
+    endif()
 
     target_compile_definitions(rom-hamster-gui PRIVATE
         RH_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data"
@@ -320,13 +361,41 @@ install(FILES data/rom-hamster.1
 install(FILES LICENSE
     DESTINATION "${CMAKE_INSTALL_DATADIR}/rom-hamster")
 
-# CLI 输出编码回归：在 C locale 下仍须是 UTF-8 字节（§15）
+# ---------------------------------------------------------------------------
+# 翻译（§11）：CLI 用 gettext。msgid 为英文，zh_CN.po 由 msgfmt 编译后安装到
+# share/locale；没有 msgfmt 时只提示，不影响构建（输出回落到英文 msgid）。
+# ---------------------------------------------------------------------------
+target_compile_definitions(rom-hamster PRIVATE
+    RH_LOCALEDIR="${CMAKE_INSTALL_FULL_DATADIR}/locale")
+
+find_program(RH_MSGFMT NAMES msgfmt)
+if(RH_MSGFMT)
+    set(RH_PO_ZH "${CMAKE_CURRENT_SOURCE_DIR}/po/zh_CN.po")
+    set(RH_MO_DIR "${CMAKE_BINARY_DIR}/locale/zh_CN/LC_MESSAGES")
+    set(RH_MO_ZH "${RH_MO_DIR}/rom-hamster.mo")
+    add_custom_command(
+        OUTPUT "${RH_MO_ZH}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${RH_MO_DIR}"
+        COMMAND "${RH_MSGFMT}" -c -o "${RH_MO_ZH}" "${RH_PO_ZH}"
+        DEPENDS "${RH_PO_ZH}"
+        COMMENT "编译 po/zh_CN.po"
+        VERBATIM
+    )
+    add_custom_target(rom-hamster-mo ALL DEPENDS "${RH_MO_ZH}")
+    install(FILES "${RH_MO_ZH}"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/locale/zh_CN/LC_MESSAGES")
+else()
+    message(STATUS "未找到 msgfmt：跳过 zh_CN 翻译编译，CLI 输出英文 msgid")
+endif()
+
+# CLI 输出编码回归：在 C locale 下仍须是 UTF-8 字节（§15）。
+# gettext 接入后 C locale 显示英文 msgid，中文出现在 zh_CN 环境里。
 if(UNIX)
     add_test(NAME cli/version-utf8
         COMMAND ${CMAKE_COMMAND} -E env LC_ALL=C LANG=C
                 $<TARGET_FILE:rom-hamster> --version)
     set_tests_properties(cli/version-utf8 PROPERTIES
-        PASS_REGULAR_EXPRESSION "仓库:")
+        PASS_REGULAR_EXPRESSION "Repository:")
 
     # 伪终端回归：GLib 的 g_print/g_printerr 只在 stdout 是终端时才转码
     # （glib/gprint.c 的 g_fputs），只测管道会漏掉「TTY 下中文变 ?」。
@@ -337,7 +406,7 @@ if(UNIX)
                     ${RH_SCRIPT_EXECUTABLE} -q -c
                     "$<TARGET_FILE:rom-hamster> --version" /dev/null)
         set_tests_properties(cli/version-utf8-tty PROPERTIES
-            PASS_REGULAR_EXPRESSION "仓库:")
+            PASS_REGULAR_EXPRESSION "Repository:")
     endif()
 endif()
 
