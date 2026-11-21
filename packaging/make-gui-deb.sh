@@ -127,9 +127,29 @@ EOF
 # GUI 二进制的 rpath 是 $ORIGIN/../lib/rom-hamster，而 rom-hamster 包按 Debian
 # 惯例把核心库装在 /usr/lib/<multiarch>/rom-hamster；放一个指向它的符号链接，
 # 免得为了打包重新配置一套 multiarch 的构建树。
-core_dir="/usr/lib/x86_64-linux-gnu/rom-hamster"
 mkdir -p "$stage/usr/lib/rom-hamster"
-ln -sf "$core_dir/libromham.so.1" "$stage/usr/lib/rom-hamster/libromham.so.1"
+# 用相对链接，避免 lintian 的 absolute-symlink-in-top-level-folder。
+ln -sf "../x86_64-linux-gnu/rom-hamster/libromham.so.1" \
+    "$stage/usr/lib/rom-hamster/libromham.so.1"
+
+# Debian 文档：copyright + changelog，缺一不可（lintian 报 error）。
+doc_dir="$stage/usr/share/doc/rom-hamster-gui"
+mkdir -p "$doc_dir"
+cp "$repo/LICENSE" "$doc_dir/copyright"
+chmod 644 "$doc_dir/copyright"
+{
+    printf 'rom-hamster-gui (%s) unstable; urgency=medium\n\n' "$version"
+    printf '  * Release %s.\n\n' "$version"
+    printf ' -- Zhou Xin <zhouxin312@qq.com>  %s\n' "$(date -R)"
+} | gzip -9n >"$doc_dir/changelog.gz"
+
+# qt.conf 不是可执行程序，GUI 主程序也不单独提供手册页：按已知误报覆盖。
+override_dir="$stage/usr/share/lintian/overrides"
+mkdir -p "$override_dir"
+cat >"$override_dir/rom-hamster-gui" <<'EOF'
+rom-hamster-gui: no-manual-page [usr/bin/qt.conf]
+rom-hamster-gui: no-manual-page [usr/bin/rom-hamster-gui]
+EOF
 
 echo "==> 计算依赖"
 mkdir -p "$work/debian"

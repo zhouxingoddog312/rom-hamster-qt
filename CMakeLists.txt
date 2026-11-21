@@ -191,6 +191,7 @@ if(RH_GUI)
         src/gui/window-main.cpp
         src/gui/window-detail.cpp
         src/gui/import-job.cpp
+        src/gui/dat-dialog.cpp
         src/gui/version-check.cpp
         resources/resources.qrc
         ${RH_TRANSLATIONS_QRC}

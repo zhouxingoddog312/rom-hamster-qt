@@ -1484,6 +1484,17 @@ MinGW 运行时，再用仅含 `System32` 的 PATH 自检）、`packaging/make-d
 - `packaging/make-appimage.sh`：linuxdeploy + plugin-qt 生成单文件 GUI AppImage；
   内含应急 CLI 入口（`rom-hamster.AppImage --cli …` 转发给同目录 CLI 二进制）。
 
+**DAT 下载纳入打包验收（2026-11-21 补记）**
+
+- 核心库新增 `libcurl-4.dll` 导入：Windows CLI zip 增至 27 个 DLL、GUI zip
+  增至 40 个，均通过仅含 `System32` 的 PATH 自检。
+- `rom-hamster` deb 的 `Depends` 由 `dpkg-shlibdeps` 自动加入 `libcurl4t64`；
+  `rom-hamster-gui` deb 补齐 `copyright`/`changelog` 后 lintian 无 error，
+  只剩核心包既有的 ldconfig trigger 警告。
+- AppImage 内已包含 `libcurl.so.4`；`dist/SHA256SUMS` 覆盖全部 8 个产物。
+- Inno Setup 简体中文语言文件改为仓库内
+  `packaging/windows/ChineseSimplified.isl`，不再依赖编译器目录。
+
 仍缺：AppStream 截图、AppImage 的 Ubuntu 22.04 构建基线复核
 （本轮用构建机发行版 Qt 6.10.2 验证管线，
 deb 的 glibc 下限同样取决于构建机）。

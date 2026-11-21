@@ -21,6 +21,7 @@ static gboolean opt_explain = FALSE;
 static gboolean opt_check = FALSE;
 static gchar *opt_dat_dir = NULL;
 static gboolean opt_import = FALSE;
+static gboolean opt_quiet = FALSE;
 
 static gchar *resolve_db(void)
 {
@@ -362,6 +363,8 @@ static int dat_update(int argc, char **argv)
           N_("Directory for downloaded DAT files"), "PATH" },
         { "import", 0, 0, G_OPTION_ARG_NONE, &opt_import,
           N_("Import the downloaded DAT files into the library"), NULL },
+        { "quiet", 'q', 0, G_OPTION_ARG_NONE, &opt_quiet,
+          N_("No output; with --check exit 1 when updates are available"), NULL },
         { NULL, 0, 0, 0, 0, NULL, NULL }
     };
 
@@ -428,7 +431,7 @@ static int dat_update(int argc, char **argv)
         options.check_only = opt_check;
         options.force = opt_force;
         FetchProgress progress = { 0, };
-        options.progress = fetch_progress;
+        options.progress = opt_quiet ? NULL : fetch_progress;
         options.user_data = &progress;
 
         RhDatFetchResult result;
@@ -442,7 +445,8 @@ static int dat_update(int argc, char **argv)
             line = g_strdup_printf(_("%s: failed: %s\n"), source->platform,
                                    result.message != NULL
                                        ? result.message : rh_err_str(err));
-            rh_cli_print(stderr, line);
+            if (!opt_quiet)
+                rh_cli_print(stderr, line);
             g_free(line);
             rh_dat_fetch_result_clear(&result);
             continue;
@@ -466,7 +470,8 @@ static int dat_update(int argc, char **argv)
             unchanged++;
             line = g_strdup_printf(_("%s: up to date\n"), source->platform);
         }
-        rh_cli_print(stdout, line);
+        if (!opt_quiet)
+            rh_cli_print(stdout, line);
         g_free(line);
         g_free(bytes);
 
@@ -476,7 +481,7 @@ static int dat_update(int argc, char **argv)
             import_options.dat_name = source->name;
             import_options.force = opt_force;
             DatProgress import_progress = { 0, };
-            import_options.progress = dat_progress;
+            import_options.progress = opt_quiet ? NULL : dat_progress;
             import_options.user_data = &import_progress;
 
             RhDatImportStats stats;
@@ -489,18 +494,21 @@ static int dat_update(int argc, char **argv)
                 failed++;
                 line = g_strdup_printf(_("%s: index update failed: %s\n"),
                                        source->platform, rh_err_str(err));
-                rh_cli_print(stderr, line);
+                if (!opt_quiet)
+                    rh_cli_print(stderr, line);
                 g_free(line);
             } else if (stats.unchanged) {
                 line = g_strdup_printf(_("%s: index is up to date\n"),
                                        source->platform);
-                rh_cli_print(stdout, line);
+                if (!opt_quiet)
+                    rh_cli_print(stdout, line);
                 g_free(line);
             } else {
                 gchar *entries = rh_cli_format_int64(stats.entry_count);
                 line = g_strdup_printf(_("%s: indexed %s entries\n"),
                                        source->platform, entries);
-                rh_cli_print(stdout, line);
+                if (!opt_quiet)
+                    rh_cli_print(stdout, line);
                 g_free(line);
                 g_free(entries);
             }
@@ -526,9 +534,16 @@ static int dat_update(int argc, char **argv)
                           available, unchanged, failed)
         : g_strdup_printf(_("Update finished: %d updated, %d unchanged, %d failed\n"),
                           updated, unchanged, failed);
-    rh_cli_print(stdout, summary);
+    if (!opt_quiet)
+        rh_cli_print(stdout, summary);
     g_free(summary);
 
+    if (opt_quiet && opt_check) {
+        /* 供 cron/计划任务使用：0 已最新，1 有更新，2 出错。 */
+        if (failed > 0)
+            return 2;
+        return available > 0 ? 1 : 0;
+    }
     return failed > 0 ? 1 : 0;
 }
 

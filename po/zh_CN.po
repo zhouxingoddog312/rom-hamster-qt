@@ -10,7 +10,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: rom-hamster 0.1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-21 15:10+0800\n"
+"POT-Creation-Date: 2026-11-21 16:27+0800\n"
 "PO-Revision-Date: 2026-11-21 10:50+0800\n"
 "Last-Translator: Zhou Xin <zhouxin312@qq.com>\n"
 "Language-Team: Chinese (Simplified)\n"
@@ -81,7 +81,7 @@ msgstr "无法打开数据库 %s：%s\n"
 
 #: src/cli/cmd-query.c:33 src/cli/cmd-detail.c:30 src/cli/cmd-manage.c:39
 #: src/cli/cmd-manage.c:85 src/cli/cmd-manage.c:163 src/cli/cmd-export.c:21
-#: src/cli/cmd-dat.c:61 src/cli/cmd-dat.c:159 src/cli/cmd-dat.c:352
+#: src/cli/cmd-dat.c:62 src/cli/cmd-dat.c:160 src/cli/cmd-dat.c:353
 msgid "Database file"
 msgstr "数据库文件"
 
@@ -171,8 +171,8 @@ msgstr "- 检索游戏"
 
 #: src/cli/cmd-query.c:66 src/cli/cmd-detail.c:39 src/cli/cmd-manage.c:51
 #: src/cli/cmd-manage.c:105 src/cli/cmd-manage.c:172 src/cli/cmd-export.c:41
-#: src/cli/cmd-dat.c:78 src/cli/cmd-dat.c:168 src/cli/cmd-dat.c:261
-#: src/cli/cmd-dat.c:373
+#: src/cli/cmd-dat.c:79 src/cli/cmd-dat.c:169 src/cli/cmd-dat.c:262
+#: src/cli/cmd-dat.c:376
 #, c-format
 msgid "Option error: %s"
 msgstr "参数错误: %s"
@@ -510,129 +510,129 @@ msgstr "导出失败: %s"
 msgid "Export complete: %u games, %u ROM files, %u media files, %u errors\n"
 msgstr "导出完成：游戏 %u，ROM %u，媒体 %u，错误 %u\n"
 
-#: src/cli/cmd-dat.c:63
+#: src/cli/cmd-dat.c:64
 msgid "Platform ID the DAT belongs to"
 msgstr "DAT 所属的平台 ID"
 
-#: src/cli/cmd-dat.c:65
+#: src/cli/cmd-dat.c:66
 msgid "Override the DAT name"
 msgstr "覆盖 DAT 名称"
 
-#: src/cli/cmd-dat.c:67
+#: src/cli/cmd-dat.c:68
 msgid "Override the DAT version"
 msgstr "覆盖 DAT 版本"
 
-#: src/cli/cmd-dat.c:69
+#: src/cli/cmd-dat.c:70
 msgid "Rebuild the index even if the file is unchanged"
 msgstr "即使文件未变也重建索引"
 
-#: src/cli/cmd-dat.c:73
+#: src/cli/cmd-dat.c:74
 msgid "- Import a Logiqx DAT file"
 msgstr "- 导入 Logiqx DAT 文件"
 
-#: src/cli/cmd-dat.c:86
+#: src/cli/cmd-dat.c:87
 msgid "Usage: rom-hamster dat import <FILE> --platform <ID>"
 msgstr "用法: rom-hamster dat import <文件> --platform <平台ID>"
 
-#: src/cli/cmd-dat.c:88
+#: src/cli/cmd-dat.c:89
 msgid "--platform is required"
 msgstr "必须指定 --platform"
 
-#: src/cli/cmd-dat.c:115
+#: src/cli/cmd-dat.c:116
 #, c-format
 msgid "DAT import failed: %s"
 msgstr "DAT 导入失败：%s"
 
-#: src/cli/cmd-dat.c:121
+#: src/cli/cmd-dat.c:122
 msgid "Unchanged: index is up to date (use --force to rebuild)\n"
 msgstr "内容未变：索引已是最新（用 --force 强制重建）\n"
 
-#: src/cli/cmd-dat.c:125
+#: src/cli/cmd-dat.c:126
 #, c-format
 msgid "Imported %s\n"
 msgstr "已导入 %s\n"
 
-#: src/cli/cmd-dat.c:129
+#: src/cli/cmd-dat.c:130
 #, c-format
 msgid "Platform: %s\n"
 msgstr "平台: %s\n"
 
-#: src/cli/cmd-dat.c:133
+#: src/cli/cmd-dat.c:134
 #, c-format
 msgid "Encoding: %s%s%s\n"
 msgstr "编码: %s%s%s\n"
 
-#: src/cli/cmd-dat.c:135
+#: src/cli/cmd-dat.c:136
 msgid " (guessed)"
 msgstr "（推测）"
 
-#: src/cli/cmd-dat.c:136
+#: src/cli/cmd-dat.c:137
 msgid " (invalid bytes escaped)"
 msgstr "（非法字节已转义）"
 
-#: src/cli/cmd-dat.c:143
+#: src/cli/cmd-dat.c:144
 #, c-format
 msgid "Games: %s, entries: %s, skipped: %s\n"
 msgstr "游戏: %s，条目: %s，跳过: %s\n"
 
-#: src/cli/cmd-dat.c:152
+#: src/cli/cmd-dat.c:153
 msgid "Warning: DAT structure error, partial index imported\n"
 msgstr "警告: DAT 结构有误，仅导入已解析的部分索引\n"
 
-#: src/cli/cmd-dat.c:163
+#: src/cli/cmd-dat.c:164
 msgid "- List imported DAT indexes"
 msgstr "- 列出已导入的 DAT 索引"
 
-#: src/cli/cmd-dat.c:187
+#: src/cli/cmd-dat.c:188
 #, c-format
 msgid "Cannot list DAT indexes: %s"
 msgstr "无法列出 DAT 索引：%s"
 
-#: src/cli/cmd-dat.c:193
+#: src/cli/cmd-dat.c:194
 msgid "No DAT imported\n"
 msgstr "尚未导入 DAT\n"
 
-#: src/cli/cmd-dat.c:198
+#: src/cli/cmd-dat.c:199
 msgid "Platform\tEntries\tVersion\tName\tPath\n"
 msgstr "平台\t条目\t版本\t名称\t路径\n"
 
-#: src/cli/cmd-dat.c:218
+#: src/cli/cmd-dat.c:219
 msgid "Searched:\n"
 msgstr "已查找:\n"
 
-#: src/cli/cmd-dat.c:222 src/cli/cmd-dat.c:229 src/cli/cmd-dat.c:238
+#: src/cli/cmd-dat.c:223 src/cli/cmd-dat.c:230 src/cli/cmd-dat.c:239
 #, c-format
 msgid "  %s\n"
 msgstr "  %s\n"
 
-#: src/cli/cmd-dat.c:250 src/cli/cmd-dat.c:356
+#: src/cli/cmd-dat.c:251 src/cli/cmd-dat.c:357
 msgid "Manifest file (default: search data directories)"
 msgstr "清单文件（默认在数据目录中查找）"
 
-#: src/cli/cmd-dat.c:252
+#: src/cli/cmd-dat.c:253
 msgid "Show which manifest file is used"
 msgstr "显示实际使用的清单文件"
 
-#: src/cli/cmd-dat.c:256
+#: src/cli/cmd-dat.c:257
 msgid "- List DAT sources"
 msgstr "- 列出 DAT 来源"
 
-#: src/cli/cmd-dat.c:271 src/cli/cmd-dat.c:386
+#: src/cli/cmd-dat.c:272 src/cli/cmd-dat.c:389
 msgid "DAT source manifest not found\n"
 msgstr "未找到 DAT 源清单\n"
 
-#: src/cli/cmd-dat.c:277
+#: src/cli/cmd-dat.c:278
 #, c-format
 msgid "Manifest: %s\n"
 msgstr "清单: %s\n"
 
-#: src/cli/cmd-dat.c:287 src/cli/cmd-dat.c:288 src/cli/cmd-dat.c:397
-#: src/cli/cmd-dat.c:398
+#: src/cli/cmd-dat.c:288 src/cli/cmd-dat.c:289 src/cli/cmd-dat.c:400
+#: src/cli/cmd-dat.c:401
 #, c-format
 msgid "Cannot load DAT sources: %s"
 msgstr "无法加载 DAT 源清单：%s"
 
-#: src/cli/cmd-dat.c:297
+#: src/cli/cmd-dat.c:298
 #, c-format
 msgid ""
 "[%s] %s\n"
@@ -641,103 +641,107 @@ msgstr ""
 "[%s] %s\n"
 "  文件: %s\n"
 
-#: src/cli/cmd-dat.c:305
+#: src/cli/cmd-dat.c:306
 #, c-format
 msgid "  url: %s\n"
 msgstr "  地址: %s\n"
 
-#: src/cli/cmd-dat.c:311
+#: src/cli/cmd-dat.c:312
 #, c-format
 msgid "  sha1: %s\n"
 msgstr "  SHA1: %s\n"
 
-#: src/cli/cmd-dat.c:354
+#: src/cli/cmd-dat.c:355
 msgid "Only update the DAT of this platform"
 msgstr "只更新该平台的 DAT"
 
-#: src/cli/cmd-dat.c:358
+#: src/cli/cmd-dat.c:359
 msgid "Only report whether an update is available"
 msgstr "只报告是否有可用更新"
 
-#: src/cli/cmd-dat.c:360
+#: src/cli/cmd-dat.c:361
 msgid "Download and compare even if the local file matches"
 msgstr "即使本地文件一致也重新下载比对"
 
-#: src/cli/cmd-dat.c:362
+#: src/cli/cmd-dat.c:363
 msgid "Directory for downloaded DAT files"
 msgstr "已下载 DAT 文件的存放目录"
 
-#: src/cli/cmd-dat.c:364
+#: src/cli/cmd-dat.c:365
 msgid "Import the downloaded DAT files into the library"
 msgstr "把下载的 DAT 文件导入库中"
 
-#: src/cli/cmd-dat.c:368
+#: src/cli/cmd-dat.c:367
+msgid "No output; with --check exit 1 when updates are available"
+msgstr "不输出内容；配合 --check 时，有可用更新则以 1 退出"
+
+#: src/cli/cmd-dat.c:371
 msgid "- Download and update DAT files"
 msgstr "- 下载并更新 DAT 文件"
 
-#: src/cli/cmd-dat.c:381
+#: src/cli/cmd-dat.c:384
 msgid "This build has no DAT download support"
 msgstr "当前构建未启用 DAT 下载支持"
 
-#: src/cli/cmd-dat.c:442
+#: src/cli/cmd-dat.c:445
 #, c-format
 msgid "%s: failed: %s\n"
 msgstr "%s: 失败: %s\n"
 
-#: src/cli/cmd-dat.c:455
+#: src/cli/cmd-dat.c:459
 #, c-format
 msgid "%s: update available (%s bytes)\n"
 msgstr "%s: 有可用更新（%s 字节）\n"
 
-#: src/cli/cmd-dat.c:459 src/cli/cmd-dat.c:467
+#: src/cli/cmd-dat.c:463 src/cli/cmd-dat.c:471
 #, c-format
 msgid "%s: up to date\n"
 msgstr "%s: 已是最新\n"
 
-#: src/cli/cmd-dat.c:463
+#: src/cli/cmd-dat.c:467
 #, c-format
 msgid "%s: updated (%s bytes)\n"
 msgstr "%s: 已更新（%s 字节）\n"
 
-#: src/cli/cmd-dat.c:490
+#: src/cli/cmd-dat.c:495
 #, c-format
 msgid "%s: index update failed: %s\n"
 msgstr "%s: 索引更新失败: %s\n"
 
-#: src/cli/cmd-dat.c:495
+#: src/cli/cmd-dat.c:501
 #, c-format
 msgid "%s: index is up to date\n"
 msgstr "%s: 索引已是最新\n"
 
-#: src/cli/cmd-dat.c:501
+#: src/cli/cmd-dat.c:508
 #, c-format
 msgid "%s: indexed %s entries\n"
 msgstr "%s: 已建立索引，共 %s 条\n"
 
-#: src/cli/cmd-dat.c:519
+#: src/cli/cmd-dat.c:527
 #, c-format
 msgid "No DAT source for platform: %s"
 msgstr "没有该平台的 DAT 源: %s"
 
-#: src/cli/cmd-dat.c:520
+#: src/cli/cmd-dat.c:528
 msgid "No DAT source matched"
 msgstr "没有匹配的 DAT 源"
 
-#: src/cli/cmd-dat.c:525
+#: src/cli/cmd-dat.c:533
 #, c-format
 msgid "Check finished: %d update(s), %d up to date, %d failed\n"
 msgstr "检查完成: %d 个可更新，%d 个已是最新，%d 个失败\n"
 
-#: src/cli/cmd-dat.c:527
+#: src/cli/cmd-dat.c:535
 #, c-format
 msgid "Update finished: %d updated, %d unchanged, %d failed\n"
 msgstr "更新完成: %d 个已更新，%d 个未变化，%d 个失败\n"
 
-#: src/cli/cmd-dat.c:538
+#: src/cli/cmd-dat.c:553
 msgid "Usage: rom-hamster dat <import|list|sources|update> [options]"
 msgstr "用法: rom-hamster dat <import|list|sources|update> [选项]"
 
-#: src/cli/cmd-dat.c:550
+#: src/cli/cmd-dat.c:565
 #, c-format
 msgid "Unknown dat subcommand: %s"
 msgstr "未知 dat 子命令: %s"

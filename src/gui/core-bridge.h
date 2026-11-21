@@ -10,6 +10,9 @@
 #include <glib.h>
 
 extern "C" {
+#include "dat.h"
+#include "dat-fetch.h"
+#include "dat-source.h"
 #include "detail.h"
 #include "import.h"
 #include "platform.h"

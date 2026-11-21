@@ -63,7 +63,7 @@ WizardStyle=modern
 ; 卸载只删安装目录，%APPDATA%\rom-hamster 与库文件保留（§9.4）
 
 [Languages]
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]

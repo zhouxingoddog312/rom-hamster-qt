@@ -34,6 +34,7 @@
 
 #include <QApplication>
 
+#include "dat-dialog.h"
 #include "import-job.h"
 #include "model-games.h"
 #include "rh-version.h"
@@ -121,6 +122,12 @@ void MainWindow::buildActions()
         QDesktopServices::openUrl(QUrl::fromLocalFile(m_root));
     });
 
+    QAction *datSources = new QAction(tr("DAT Sources…"), this);
+    connect(datSources, &QAction::triggered, this, [this]() {
+        DatDialog dialog(m_dbPath, this);
+        dialog.exec();
+    });
+
     QAction *quit = new QAction(tr("Quit"), this);
     quit->setShortcut(QKeySequence(QStringLiteral("Ctrl+Q")));
     connect(quit, &QAction::triggered, this, &QWidget::close);
@@ -145,6 +152,7 @@ void MainWindow::buildActions()
     fileMenu->addAction(m_importAction);
     fileMenu->addAction(m_refreshAction);
     fileMenu->addAction(openDir);
+    fileMenu->addAction(datSources);
     fileMenu->addSeparator();
     fileMenu->addAction(quit);
 
