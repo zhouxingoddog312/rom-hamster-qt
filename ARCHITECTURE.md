@@ -1495,10 +1495,27 @@ MinGW 运行时，再用仅含 `System32` 的 PATH 自检）、`packaging/make-d
 - Inno Setup 简体中文语言文件改为仓库内
   `packaging/windows/ChineseSimplified.isl`，不再依赖编译器目录。
 
-仍缺：AppStream 截图、AppImage 的 Ubuntu 22.04 构建基线复核
-（本轮用构建机发行版 Qt 6.10.2 验证管线，
-deb 的 glibc 下限同样取决于构建机）。
-安装/升级/卸载类验收与 §14.1 指标都需要实机，已延期。
+仍缺：安装/升级/卸载类验收与 §14.1 指标需要实机，见
+`specs/release-v0.1.0/checklist.md`。
+
+**发布自动化补齐（2026-11-21 第二轮）**
+
+- `ci.yml` 增加质量门禁：`msgfmt --check --check-format`（gettext）、
+  `lrelease`（Qt 翻译；MSYS2 侧补装 `qt6-tools`）、ASan+UBSan 全量单测、
+  Ubuntu 22.04 构建组（glibc 2.35 基线）。README 加 CI/Release 徽章。
+- 新增 `packaging/check-glibc.sh`：读取 ELF 的最高 `GLIBC_x.y` 符号版本，
+  与 `--max` 比较；本地构建产物当前为 `GLIBC_2.34`，满足 2.35 基线。
+- 新增 `.github/workflows/release.yml`：`v*` 标签触发四平台打包
+  （CLI deb + tarball、GUI deb + AppImage、Windows zip、zip + setup），
+  汇总 `SHA256SUMS` 后经 `softprops/action-gh-release` 发布；构建统一在
+  Ubuntu 22.04 上完成。
+- AppStream 截图：`rom-hamster-gui --screenshot PATH` 在首帧后抓主窗口
+  （offscreen/Xvfb 均可），生成 `data/screenshots/rom-hamster-main.png`
+  并接入 metainfo；`appstreamcli validate` 通过。
+- DAT 下载增加断点续传与重试：`.part` 存在且清单带 sha1 时用
+  `CURLOPT_RESUME_FROM_LARGE` 续传（服务器忽略 Range 时自动截断重来），
+  每个镜像默认重试 1 次；`RhDatFetchResult` 新增 `attempts`/`resumed_from`，
+  单测覆盖续传、重试计数与无 sha1 时忽略残留。
 
 ### 14.1 M4 性能验收（量化）
 
