@@ -24,9 +24,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            cmake ninja-build pkg-config util-linux \
+            cmake ninja-build pkg-config util-linux gettext \
             libglib2.0-dev libsqlite3-dev libarchive-dev libxml2-dev zlib1g-dev \
             libcurl4-openssl-dev
+      - name: Check gettext catalog
+        run: msgfmt --check --check-format -o /dev/null po/zh_CN.po
       - name: Configure
         run: >
           cmake -S . -B build/linux-cli -G Ninja
@@ -54,6 +56,10 @@ jobs:
         with:
           version: '6.8.*'
           cache: true
+      # CMake 找不到 lrelease 时会静默跳过 GUI 翻译编译，这里显式检查，
+      # 避免 .ts 写坏后 CI 仍然全绿。
+      - name: Check Qt translation
+        run: lrelease i18n/rom-hamster_zh_CN.ts -qm build/zh_CN.qm
       - name: Configure
         run: >
           cmake -S . -B build/linux-gui -G Ninja
@@ -119,6 +125,11 @@ jobs:
             mingw-w64-x86_64-zlib
             mingw-w64-x86_64-curl
             mingw-w64-x86_64-qt6-base
+            mingw-w64-x86_64-qt6-tools
+      - name: Check Qt translation
+        run: |
+          lrelease_bin=$(command -v lrelease || command -v lrelease6)
+          "$lrelease_bin" i18n/rom-hamster_zh_CN.ts -qm build/zh_CN.qm
       - name: Configure
         run: >
           cmake -S . -B build/windows-gui -G Ninja
@@ -127,3 +138,62 @@ jobs:
         run: cmake --build build/windows-gui --parallel
       - name: Test
         run: ctest --test-dir build/windows-gui --output-on-failure
+
+  # 与 ci/build-matrix.sh 的 sanitizer 段一致：ASan + UBSan 跑全部 C 单元测试。
+  # GLib 自身在退出时不释放全局内存，LeakSanitizer 必然误报，因此关掉内存泄漏检测。
+  linux-sanitize:
+    name: linux-sanitize (ASan + UBSan)
+    runs-on: ubuntu-24.04
+    env:
+      ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config util-linux \
+            libglib2.0-dev libsqlite3-dev libarchive-dev libxml2-dev zlib1g-dev \
+            libcurl4-openssl-dev
+      - name: Configure
+        run: >
+          cmake -S . -B build/linux-sanitize -G Ninja
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo -DRH_GUI=OFF
+          -DRH_SANITIZE=address,undefined
+      - name: Build
+        run: cmake --build build/linux-sanitize --parallel
+      - name: Test
+        run: ctest --test-dir build/linux-sanitize --output-on-failure
+
+  # AppImage 的发行基线是 Ubuntu 22.04（glibc 2.35）。直接在 22.04 上构建，
+  # 既验证依赖可获取，也保证产物不会引用更新的 glibc 符号。
+  linux-22.04:
+    name: linux-22.04 (glibc 2.35 baseline)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config util-linux binutils \
+            libglib2.0-dev libsqlite3-dev libarchive-dev libxml2-dev zlib1g-dev \
+            libcurl4-openssl-dev \
+            libgl1-mesa-dev libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 \
+            libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 \
+            libxcb-shape0 libxcb-sync1 libxcb-xfixes0 libxcb-xinerama0
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.*'
+          cache: true
+      - name: Configure
+        run: >
+          cmake -S . -B build/linux-gui -G Ninja
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo -DRH_GUI=ON
+      - name: Build
+        run: cmake --build build/linux-gui --parallel
+      - name: Test
+        run: ctest --test-dir build/linux-gui --output-on-failure
+      - name: Check glibc baseline
+        run: sh packaging/check-glibc.sh --max 2.35 build/linux-gui/rom-hamster build/linux-gui/rom-hamster-gui

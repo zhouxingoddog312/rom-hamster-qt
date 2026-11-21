@@ -1,5 +1,8 @@
 # rom-hamster
 
+[![CI](https://github.com/zhouxingoddog312/rom-hamster-qt/actions/workflows/ci.yml/badge.svg)](https://github.com/zhouxingoddog312/rom-hamster-qt/actions/workflows/ci.yml)
+[![Release](https://github.com/zhouxingoddog312/rom-hamster-qt/actions/workflows/release.yml/badge.svg)](https://github.com/zhouxingoddog312/rom-hamster-qt/actions/workflows/release.yml)
+
 Windows 11 / Linux 双端 ROM 库管理器：C11 核心 `libromham` + CLI + Qt 6 Widgets GUI。
 规格与决策见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
@@ -28,7 +31,11 @@ Windows 侧验证过的路径是 MSYS2「MINGW64」shell + `mingw-w64-x86_64-*` 
 在该 shell 里直接 `cmake --preset windows-cli` 即可；MSVC 2022 + vcpkg 为备选路径，尚未验证。
 
 CI 入口：`ci/build-matrix.sh`（Linux 跑本机两组并补 sanitizer，MSYS2 跑本机两组），四组已在本机跑通。
-CI 计划走 GitHub Actions（`msys2/setup-msys2` 跑 Windows 两组 + Ubuntu 跑 Linux 两组与 sanitizer），**当前未接**，等代码量上来或需要 PR 门禁时再启用。
+GitHub Actions 跑同一套矩阵（`.github/workflows/ci.yml`）：Ubuntu 24.04 的 CLI/GUI、
+ASan+UBSan、Ubuntu 22.04（glibc 2.35 基线）与 MSYS2 MINGW64 的 CLI/GUI，并校验
+gettext 目录（`msgfmt --check`）与 Qt 翻译（`lrelease`）。
+打 `v*` 标签时 `.github/workflows/release.yml` 在四个平台打包 deb / tar.gz /
+AppImage / zip / setup，汇总 `SHA256SUMS` 后发布 GitHub Release。
 
 ## 仓库与同步
 

@@ -12,7 +12,9 @@ static void assert_raw_equals(const RhFName *name, const gchar *bytes, gsize len
     gsize raw_len = 0;
     const gchar *raw = g_bytes_get_data(name->raw, &raw_len);
     g_assert_cmpuint(raw_len, ==, len);
-    g_assert_cmpint(memcmp(raw, bytes, len), ==, 0);
+    /* 空名字时 GBytes 的数据指针可能是 NULL，memcmp(NULL, "", 0) 属于未定义行为。 */
+    if (len > 0)
+        g_assert_cmpint(memcmp(raw, bytes, len), ==, 0);
 }
 
 static void test_utf8_passthrough(void)
