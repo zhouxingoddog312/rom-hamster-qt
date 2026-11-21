@@ -59,7 +59,9 @@ jobs:
       # CMake 找不到 lrelease 时会静默跳过 GUI 翻译编译，这里显式检查，
       # 避免 .ts 写坏后 CI 仍然全绿。
       - name: Check Qt translation
-        run: lrelease i18n/rom-hamster_zh_CN.ts -qm build/zh_CN.qm
+        run: |
+          mkdir -p build
+          lrelease i18n/rom-hamster_zh_CN.ts -qm build/zh_CN.qm
       - name: Configure
         run: >
           cmake -S . -B build/linux-gui -G Ninja
@@ -128,6 +130,7 @@ jobs:
             mingw-w64-x86_64-qt6-tools
       - name: Check Qt translation
         run: |
+          mkdir -p build
           lrelease_bin=$(command -v lrelease || command -v lrelease6)
           "$lrelease_bin" i18n/rom-hamster_zh_CN.ts -qm build/zh_CN.qm
       - name: Configure
