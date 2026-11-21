@@ -178,6 +178,7 @@ jobs:
             mingw-w64-x86_64-zlib
             mingw-w64-x86_64-curl
             mingw-w64-x86_64-qt6-base
+            mingw-w64-x86_64-qt6-tools
       - name: Locate toolchain
         run: echo "MSYS2_MINGW_BIN=$(cygpath -w /mingw64/bin)" >> "$GITHUB_ENV"
       - name: Configure
