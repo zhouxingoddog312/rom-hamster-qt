@@ -108,7 +108,15 @@ static gboolean build_archive(const char *path, const char *format,
     gboolean ok = TRUE;
     for (gsize i = 0; i < n && ok; i++) {
         struct archive_entry *entry = archive_entry_new();
+#ifdef _WIN32
+        /* Windows 进程 locale 不是 UTF-8，必须显式给 UTF-8 名，否则 zip 写入器
+         * 会按 ANSI 转码。 */
         archive_entry_set_pathname_utf8(entry, files[i].name);
+#else
+        /* libarchive 3.6 的 zip 写入器对 pathname_utf8() 的非 ASCII 路径会解引用
+         * 空指针（3.7 已修）；Linux 进程 locale 是 UTF-8，用普通入口即可。 */
+        archive_entry_set_pathname(entry, files[i].name);
+#endif
         archive_entry_set_perm(entry, 0644);
         archive_entry_set_mtime(entry, 1700000000, 0);
         if (files[i].is_dir) {
