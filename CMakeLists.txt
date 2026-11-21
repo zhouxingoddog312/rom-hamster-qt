@@ -342,6 +342,13 @@ if(UNIX)
 endif()
 
 if(RH_GUI)
+    # GUI 在 Windows 是 GUI 子系统；--version 在 QApplication 之前直接输出，
+    # 因此这里不依赖显示环境，也用于打包后的自包含自检。
+    add_test(NAME gui/version
+        COMMAND $<TARGET_FILE:rom-hamster-gui> --version)
+    set_tests_properties(gui/version PROPERTIES
+        PASS_REGULAR_EXPRESSION "${PROJECT_NAME} ${PROJECT_VERSION}")
+
     install(TARGETS rom-hamster-gui RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     set_target_properties(rom-hamster-gui PROPERTIES
         INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}/rom-hamster;$ORIGIN/../lib/rom-hamster/qt6")

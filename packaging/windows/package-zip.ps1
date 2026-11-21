@@ -344,6 +344,23 @@ try {
     $env:PATH = $savedPath
 }
 
+if ($Gui) {
+    # The GUI is a Windows-subsystem binary, so PowerShell may not wait for it;
+    # Start-Process -Wait is what actually surfaces the exit code here.
+    Write-Host "      verify: rom-hamster-gui.exe --version with System32-only PATH"
+    $savedPath = $env:PATH
+    try {
+        $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+        $guiProc = Start-Process -FilePath (Join-Path $stageBin "rom-hamster-gui.exe") `
+            -ArgumentList "--version" -NoNewWindow -Wait -PassThru
+        if ($guiProc.ExitCode -ne 0) {
+            throw "Bundled GUI failed to start with a System32-only PATH (exit code $($guiProc.ExitCode)). A runtime DLL is probably still missing."
+        }
+    } finally {
+        $env:PATH = $savedPath
+    }
+}
+
 # Project version: parse the project() call itself. A plain "VERSION x.y"
 # search would match cmake_minimum_required(VERSION 3.22) first.
 $cmakeLists = Get-Content -LiteralPath (Join-Path $root "CMakeLists.txt") -Raw

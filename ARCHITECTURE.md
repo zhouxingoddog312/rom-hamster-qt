@@ -1439,12 +1439,31 @@ Windows **19/19（95 用例）**。M2 遗留的纯补丁/混合/二义包交互�
 | 断网时版本检查静默且不阻塞启动 | 已完成 | `setTransferTimeout(3000)`，错误分支直接返回；默认 `RH_UPDATE_CHECK_URL` 为空时跳过 |
 | 视频默认外部播放器 | 已完成 | `QDesktopServices::openUrl`；Multimedia 仍为可选构建 |
 
-四组构建（Linux/Windows × CLI/GUI）通过，0 warning；`ctest` Linux **21/21（101 用例）**、
-Windows **19/19（97 用例）**。本机 Windows 源码路径含中文，Qt 6.12 的 `moc`
+四组构建（Linux/Windows × CLI/GUI）通过，0 warning；`ctest` Linux **22/22（102 用例）**、
+Windows **20/20（98 用例）**。本机 Windows 源码路径含中文，Qt 6.12 的 `moc`
 无法在非 ASCII 绝对路径下写输出，验证时用 ASCII 目录联接（junction）映射后构建；
 CI 的仓库路径为 ASCII，不受影响。
 
 未结项：§14.1 的启动/滚动/内存指标需在参考机型上人工记录，本轮未测。
+
+**M5 进度（2026-11-21）**
+
+已具备：`packaging/windows/package-zip.ps1`（CLI/GUI 两包，按 PE 导入表复制
+MinGW 运行时，再用仅含 `System32` 的 PATH 自检）、`packaging/make-deb.sh` 与
+`packaging/debian/` 两个 deb、`.github/workflows/ci.yml` 四组矩阵。
+
+本轮完成：
+
+- `rom-hamster-gui --version` 在 `QApplication` 之前直接输出。Windows 的 GUI
+  子系统没有控制台，Qt 自带的 `--version` 会退化成消息框并阻塞自动化；提前输出后
+  打包脚本可在无窗口的情况下拿到退出码。
+- 新增 `gui/version` 用例，双端均不依赖显示环境。
+- 重新打包并验证：Windows CLI zip 带 14 个 MinGW DLL，GUI zip 带 29 个 DLL 加
+  Qt 部署；两个包在仅含 `System32` 的 PATH 下 `--version` 均返回 0。
+
+仍缺：Inno Setup 安装包、GUI deb 包（依赖自带 Qt 部署）、CLI tarball、
+GUI AppImage、AppStream 截图、CLI gettext 与 GUI `.qm`、SHA-256 清单。
+安装/升级/卸载类验收与 §14.1 指标都需要实机，已延期。
 
 ### 14.1 M4 性能验收（量化）
 

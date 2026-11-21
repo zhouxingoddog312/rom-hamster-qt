@@ -12,6 +12,9 @@
 #include <QStandardPaths>
 #include <QUrl>
 
+#include <cstdio>
+#include <cstring>
+
 #include "core-bridge.h"
 #include "rh-version.h"
 #include "version-check.h"
@@ -75,10 +78,29 @@ QString singleInstanceName()
     return QStringLiteral("rom-hamster-gui-%1").arg(user);
 }
 
+/*
+ * Windows 的 GUI 子系统没有控制台，Qt 的 --version 会退化成消息框并阻塞；
+ * 打包自检需要在无窗口、无交互的情况下拿到退出码，所以先直接输出。
+ */
+bool printVersionIfRequested(int argc, char *argv[])
+{
+    for (int i = 1; i < argc; i++) {
+        if (std::strcmp(argv[i], "--version") == 0
+            || std::strcmp(argv[i], "-v") == 0) {
+            std::printf("%s %s\n", RH_PROJECT_NAME, RH_VERSION);
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace
 
 int main(int argc, char *argv[])
 {
+    if (printVersionIfRequested(argc, argv))
+        return 0;
+
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral(RH_PROJECT_NAME));
     QApplication::setApplicationDisplayName(QStringLiteral("rom-hamster"));
