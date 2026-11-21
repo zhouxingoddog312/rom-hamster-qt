@@ -48,7 +48,7 @@ void GameTableModel::reload()
     endResetModel();
 
     if (m_store == nullptr) {
-        emit errorOccurred(QStringLiteral("数据库未打开"));
+        emit errorOccurred(tr("Database is not open"));
         return;
     }
 
@@ -164,7 +164,7 @@ QVariant GameTableModel::data(const QModelIndex &index, int role) const
     case ColRating:
         return game->rating > 0.0 ? QString::number(game->rating, 'f', 1) : QString();
     case ColDiscs:
-        return game->is_multi_disc ? QStringLiteral("多碟") : QString();
+        return game->is_multi_disc ? tr("Multi-disc") : QString();
     case ColStatus:
         return QString::fromUtf8(game->rom_status != nullptr ? game->rom_status : "");
     default:
@@ -179,16 +179,16 @@ QVariant GameTableModel::headerData(int section, Qt::Orientation orientation,
         return QVariant();
 
     switch (section) {
-    case ColName:      return QStringLiteral("名称");
-    case ColPlatform:  return QStringLiteral("平台");
-    case ColYear:      return QStringLiteral("年份");
-    case ColGenre:     return QStringLiteral("类型");
-    case ColDeveloper: return QStringLiteral("开发商");
-    case ColPublisher: return QStringLiteral("发行商");
-    case ColRegion:    return QStringLiteral("区域");
-    case ColRating:    return QStringLiteral("评分");
-    case ColDiscs:     return QStringLiteral("碟片");
-    case ColStatus:    return QStringLiteral("ROM 状态");
+    case ColName:      return tr("Name");
+    case ColPlatform:  return tr("Platform");
+    case ColYear:      return tr("Year");
+    case ColGenre:     return tr("Genre");
+    case ColDeveloper: return tr("Developer");
+    case ColPublisher: return tr("Publisher");
+    case ColRegion:    return tr("Region");
+    case ColRating:    return tr("Rating");
+    case ColDiscs:     return tr("Discs");
+    case ColStatus:    return tr("ROM Status");
     default:           return QVariant();
     }
 }

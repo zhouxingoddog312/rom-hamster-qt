@@ -1468,11 +1468,14 @@ MinGW 运行时，再用仅含 `System32` 的 PATH 自检）、`packaging/make-d
   Inno Setup 脚本（固定 AppId、`%ProgramFiles%\rom-hamster`、开始菜单、可选
   PATH、卸载保留 `%APPDATA%`），编译出 `dist/rom-hamster-<ver>-win64-setup.exe`。
 - CLI gettext 接入（`src/cli/i18n.c`，msgid 英文，`po/zh_CN.po` 由 msgfmt 编成
-  `share/locale/zh_CN/LC_MESSAGES/rom-hamster.mo`）。目前词条覆盖 `--version`、
-  `help`、未知命令与 `--version` 选项说明；子命令文案仍为源码内中文，待逐步迁移。
-  Windows 未设 `LANG` 时按界面语言补 `zh_CN`。
+  `share/locale/zh_CN/LC_MESSAGES/rom-hamster.mo`）。104 条应用翻译覆盖主程序与
+  `list`/`show`/`edit`/`delete`/`stats`/`export` 全部子命令；含 `G_GINT64_FORMAT`
+  的数值先转成字符串，避免 xgettext 截断词条。Windows 未设 `LANG` 时按界面语言补
+  `zh_CN`。
 - GUI 翻译管线（`i18n/*.ts` → `lrelease` → 资源 `:/i18n/*.qm`，启动时按系统
-  语言 `QTranslator::load`）。尚无 `tr()` 词条，`.ts` 为空占位。
+  语言 `QTranslator::load`）。启动、主窗口、详情与导入文案已接入 `tr()` 或
+  `QCoreApplication::translate()`；`zh_CN` 共 137 条翻译，经 lupdate/lrelease 复核，
+  无未完成词条，所有 `%n` 占位符与英文源文一致。
 - 修复：`qt_add_executable` 不会自动开启 `AUTORCC`，此前 `resources.qrc` 从未
   编进二进制（图标资源实际缺失）；现已在 GUI 目标打开 `AUTORCC`。
 - `packaging/make-gui-deb.sh`：GUI deb 自带 Qt 6（`/usr/lib/rom-hamster/qt6` +
@@ -1481,8 +1484,8 @@ MinGW 运行时，再用仅含 `System32` 的 PATH 自检）、`packaging/make-d
 - `packaging/make-appimage.sh`：linuxdeploy + plugin-qt 生成单文件 GUI AppImage；
   内含应急 CLI 入口（`rom-hamster.AppImage --cli …` 转发给同目录 CLI 二进制）。
 
-仍缺：AppStream 截图、CLI 子命令词条与 GUI `tr()` 迁移、GUI `.qm` 词条翻译、
-AppImage 的 Ubuntu 22.04 构建基线复核（本轮用构建机发行版 Qt 6.10.2 验证管线，
+仍缺：AppStream 截图、AppImage 的 Ubuntu 22.04 构建基线复核
+（本轮用构建机发行版 Qt 6.10.2 验证管线，
 deb 的 glibc 下限同样取决于构建机）。
 安装/升级/卸载类验收与 §14.1 指标都需要实机，已延期。
 

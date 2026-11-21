@@ -86,7 +86,7 @@ void ImportExecThread::run()
     m_store = store_open(m_dbPath.toUtf8().constData(), &err);
     if (m_store == nullptr) {
         failed = true;
-        error = QStringLiteral("无法打开数据库：%1")
+        error = tr("Unable to open database: %1")
                     .arg(QString::fromUtf8(rh_err_str(err)));
         return;
     }

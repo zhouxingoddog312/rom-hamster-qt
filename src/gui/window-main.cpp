@@ -2,6 +2,7 @@
 
 #include <QAction>
 #include <QCheckBox>
+#include <QCoreApplication>
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QDesktopServices>
@@ -75,12 +76,12 @@ MainWindow::MainWindow(RhStore *store, const QString &dbPath, const QString &roo
     m_statusLabel = new QLabel(this);
     statusBar()->addWidget(m_statusLabel);
     statusBar()->addPermanentWidget(
-        new QLabel(QStringLiteral("库：%1").arg(QDir::toNativeSeparators(root)), this));
+        new QLabel(tr("Library: %1").arg(QDir::toNativeSeparators(root)), this));
 
     if (m_readOnly) {
         m_importAction->setEnabled(false);
         statusBar()->showMessage(
-            QStringLiteral("库由更高版本的 rom-hamster 创建，当前以只读方式打开。"));
+            tr("This library was created by a newer version of rom-hamster and is open in read-only mode."));
     }
 
     connect(m_table, &QTableView::doubleClicked, this,
@@ -92,7 +93,7 @@ MainWindow::MainWindow(RhStore *store, const QString &dbPath, const QString &roo
     connect(m_model, &QAbstractItemModel::rowsInserted, this, &MainWindow::updateStatus);
     connect(m_model, &QAbstractItemModel::modelReset, this, &MainWindow::updateStatus);
     connect(m_model, &GameTableModel::errorOccurred, this, [this](const QString &message) {
-        statusBar()->showMessage(QStringLiteral("检索失败：%1").arg(message), 8000);
+        statusBar()->showMessage(tr("Query failed: %1").arg(message), 8000);
     });
 
     m_detailAction->setEnabled(false);
@@ -103,11 +104,11 @@ MainWindow::MainWindow(RhStore *store, const QString &dbPath, const QString &roo
 
 void MainWindow::buildActions()
 {
-    m_importAction = new QAction(QStringLiteral("导入目录…"), this);
+    m_importAction = new QAction(tr("Import Directory…"), this);
     m_importAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+I")));
     connect(m_importAction, &QAction::triggered, this, &MainWindow::chooseAndImport);
 
-    m_refreshAction = new QAction(QStringLiteral("刷新列表"), this);
+    m_refreshAction = new QAction(tr("Refresh List"), this);
     m_refreshAction->setShortcut(QKeySequence::Refresh);
     connect(m_refreshAction, &QAction::triggered, this, [this]() {
         m_model->reload();
@@ -115,74 +116,74 @@ void MainWindow::buildActions()
         updateStatus();
     });
 
-    QAction *openDir = new QAction(QStringLiteral("打开库目录"), this);
+    QAction *openDir = new QAction(tr("Open Library Directory"), this);
     connect(openDir, &QAction::triggered, this, [this]() {
         QDesktopServices::openUrl(QUrl::fromLocalFile(m_root));
     });
 
-    QAction *quit = new QAction(QStringLiteral("退出"), this);
+    QAction *quit = new QAction(tr("Quit"), this);
     quit->setShortcut(QKeySequence(QStringLiteral("Ctrl+Q")));
     connect(quit, &QAction::triggered, this, &QWidget::close);
 
-    m_detailAction = new QAction(QStringLiteral("查看详情"), this);
+    m_detailAction = new QAction(tr("View Details"), this);
     m_detailAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Return")));
     connect(m_detailAction, &QAction::triggered, this, &MainWindow::openCurrentDetail);
     addAction(m_detailAction);
 
-    QAction *about = new QAction(QStringLiteral("关于"), this);
+    QAction *about = new QAction(tr("About"), this);
     connect(about, &QAction::triggered, this, [this]() {
         QMessageBox::about(
-            this, QStringLiteral("关于 rom-hamster"),
-            QStringLiteral("<b>rom-hamster</b> %1<br/>双端 ROM 库管理器<br/><br/>"
-                           "仓库：<a href=\"%2\">%2</a><br/>问题反馈：<a href=\"%3\">%3</a>")
+            this, tr("About rom-hamster"),
+            tr("<b>rom-hamster</b> %1<br/>Dual-platform ROM Library Manager<br/><br/>"
+               "Repository: <a href=\"%2\">%2</a><br/>Report issues: <a href=\"%3\">%3</a>")
                 .arg(QString::fromLatin1(RH_VERSION),
                      QString::fromLatin1(RH_REPO_URL),
                      QString::fromLatin1(RH_ISSUES_URL)));
     });
 
-    QMenu *fileMenu = menuBar()->addMenu(QStringLiteral("文件"));
+    QMenu *fileMenu = menuBar()->addMenu(tr("File"));
     fileMenu->addAction(m_importAction);
     fileMenu->addAction(m_refreshAction);
     fileMenu->addAction(openDir);
     fileMenu->addSeparator();
     fileMenu->addAction(quit);
 
-    QMenu *viewMenu = menuBar()->addMenu(QStringLiteral("查看"));
+    QMenu *viewMenu = menuBar()->addMenu(tr("View"));
     viewMenu->addAction(m_detailAction);
 
-    QMenu *helpMenu = menuBar()->addMenu(QStringLiteral("帮助"));
+    QMenu *helpMenu = menuBar()->addMenu(tr("Help"));
     helpMenu->addAction(about);
 }
 
 void MainWindow::buildToolBar()
 {
-    QToolBar *bar = addToolBar(QStringLiteral("主工具栏"));
+    QToolBar *bar = addToolBar(tr("Main Toolbar"));
     bar->setMovable(false);
     bar->addAction(m_importAction);
     bar->addAction(m_refreshAction);
     bar->addSeparator();
 
-    bar->addWidget(new QLabel(QStringLiteral(" 搜索 "), bar));
+    bar->addWidget(new QLabel(tr(" Search "), bar));
     m_search = new QLineEdit(bar);
-    m_search->setPlaceholderText(QStringLiteral("名称子串…"));
+    m_search->setPlaceholderText(tr("Name substring…"));
     m_search->setClearButtonEnabled(true);
     m_search->setFixedWidth(260);
     bar->addWidget(m_search);
 
-    bar->addWidget(new QLabel(QStringLiteral(" 平台 "), bar));
+    bar->addWidget(new QLabel(tr(" Platform "), bar));
     m_platformBox = new QComboBox(bar);
     m_platformBox->setMinimumWidth(170);
     bar->addWidget(m_platformBox);
 
-    bar->addWidget(new QLabel(QStringLiteral(" 排序 "), bar));
+    bar->addWidget(new QLabel(tr(" Sort "), bar));
     m_sortBox = new QComboBox(bar);
-    m_sortBox->addItem(QStringLiteral("名称"), QStringLiteral("name"));
-    m_sortBox->addItem(QStringLiteral("评分"), QStringLiteral("rating"));
-    m_sortBox->addItem(QStringLiteral("年份"), QStringLiteral("year"));
-    m_sortBox->addItem(QStringLiteral("碟数"), QStringLiteral("discs"));
+    m_sortBox->addItem(tr("Name"), QStringLiteral("name"));
+    m_sortBox->addItem(tr("Rating"), QStringLiteral("rating"));
+    m_sortBox->addItem(tr("Year"), QStringLiteral("year"));
+    m_sortBox->addItem(tr("Disc Count"), QStringLiteral("discs"));
     bar->addWidget(m_sortBox);
 
-    m_descCheck = new QCheckBox(QStringLiteral("降序"), bar);
+    m_descCheck = new QCheckBox(tr("Descending"), bar);
     bar->addWidget(m_descCheck);
 
     /* 关键字输入停顿 200 ms 后再查，避免每敲一个字都跑一次 SQL */
@@ -223,7 +224,7 @@ void MainWindow::refreshPlatforms()
     const QString current = m_platformBox->currentData().toString();
     m_platformBox->blockSignals(true);
     m_platformBox->clear();
-    m_platformBox->addItem(QStringLiteral("全部平台"), QString());
+    m_platformBox->addItem(tr("All Platforms"), QString());
 
     RhErr err = RH_OK;
     GPtrArray *stats = store_stats_by_platform(m_store, &err);
@@ -249,7 +250,7 @@ void MainWindow::updateStatus()
     if (m_statusLabel == nullptr || m_model == nullptr)
         return;
     m_statusLabel->setText(
-        QStringLiteral("共 %1 条 · 已加载 %2").arg(m_model->total()).arg(m_model->rowCount()));
+        tr("%1 entries · %2 loaded").arg(m_model->total()).arg(m_model->rowCount()));
 }
 
 void MainWindow::openCurrentDetail()
@@ -268,7 +269,7 @@ void MainWindow::openCurrentDetail()
 void MainWindow::chooseAndImport()
 {
     const QString dir = QFileDialog::getExistingDirectory(
-        this, QStringLiteral("选择要导入的目录"), m_root);
+        this, tr("Select Directory to Import"), m_root);
     if (dir.isEmpty())
         return;
     startImport(QStringList{dir});
@@ -328,7 +329,9 @@ void MainWindow::dropEvent(QDropEvent *event)
     dirs.removeDuplicates();
     if (!dirs.isEmpty()) {
         statusBar()->showMessage(
-            QStringLiteral("拖入的条目按所在目录扫描，共 %1 个来源目录").arg(dirs.size()), 5000);
+            tr("Dropped items are scanned by their containing directories: %1 source directories")
+                .arg(dirs.size()),
+            5000);
         startImport(dirs);
     }
     event->acceptProposedAction();
@@ -337,8 +340,9 @@ void MainWindow::dropEvent(QDropEvent *event)
 void MainWindow::closeEvent(QCloseEvent *event)
 {
     if (m_importing) {
-        QMessageBox::information(this, QStringLiteral("导入进行中"),
-                                 QStringLiteral("请等待导入完成或先取消，再关闭窗口。"));
+        QMessageBox::information(
+            this, tr("Import in Progress"),
+            tr("Wait for the import to finish or cancel it before closing the window."));
         event->ignore();
         return;
     }
@@ -352,23 +356,29 @@ static QString choosePatchTarget(QWidget *parent, const GPtrArray *games,
         return QString();
 
     QDialog dialog(parent);
-    dialog.setWindowTitle(QStringLiteral("指定纯补丁包归属"));
+    dialog.setWindowTitle(
+        QCoreApplication::translate("MainWindow", "Assign Patch-Only Archive to Game"));
     dialog.resize(560, 220);
     QVBoxLayout *layout = new QVBoxLayout(&dialog);
     layout->addWidget(new QLabel(
-        QStringLiteral("补丁包：%1\n来源目录：%2\n请选择要追加补丁的已有游戏。")
+        QCoreApplication::translate(
+            "MainWindow",
+            "Patch archive: %1\nSource directory: %2\nSelect an existing game to which the patches will be added.")
             .arg(entryName, QDir::toNativeSeparators(source)), &dialog));
 
     QLineEdit *search = new QLineEdit(&dialog);
-    search->setPlaceholderText(QStringLiteral("按游戏名、平台或目录筛选"));
+    search->setPlaceholderText(
+        QCoreApplication::translate("MainWindow", "Filter by game name, platform, or directory"));
     layout->addWidget(search);
     QComboBox *choices = new QComboBox(&dialog);
     layout->addWidget(choices);
 
     QDialogButtonBox *buttons = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("归属到此游戏"));
-    buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("不归属"));
+    buttons->button(QDialogButtonBox::Ok)->setText(
+        QCoreApplication::translate("MainWindow", "Assign to This Game"));
+    buttons->button(QDialogButtonBox::Cancel)->setText(
+        QCoreApplication::translate("MainWindow", "Do Not Assign"));
     layout->addWidget(buttons);
 
     const auto refill = [games, choices, buttons, search]() {
@@ -400,18 +410,18 @@ static QString choosePatchTarget(QWidget *parent, const GPtrArray *games,
 void MainWindow::startImport(const QStringList &directories)
 {
     if (m_readOnly) {
-        QMessageBox::warning(this, QStringLiteral("只读库"),
-                             QStringLiteral("当前库以只读方式打开，不能导入。"));
+        QMessageBox::warning(this, tr("Read-Only Library"),
+                             tr("The current library is open in read-only mode; importing is unavailable."));
         return;
     }
     if (m_importing) {
-        QMessageBox::information(this, QStringLiteral("导入"),
-                                 QStringLiteral("已有导入任务在进行中。"));
+        QMessageBox::information(this, tr("Import"),
+                                 tr("An import task is already in progress."));
         return;
     }
     if (m_rules == nullptr) {
-        QMessageBox::warning(this, QStringLiteral("导入"),
-                             QStringLiteral("平台规则未加载，无法导入。"));
+        QMessageBox::warning(this, tr("Import"),
+                             tr("Platform rules are not loaded; importing is unavailable."));
         return;
     }
 
@@ -430,8 +440,8 @@ void MainWindow::startImport(const QStringList &directories)
     ImportScanThread *scan = new ImportScanThread(m_rules, m_root, dirs, this);
 
     QProgressDialog *pulse = new QProgressDialog(
-        QStringLiteral("正在预扫描来源目录…"), QString(), 0, 0, this);
-    pulse->setWindowTitle(QStringLiteral("导入"));
+        tr("Prescanning source directories…"), QString(), 0, 0, this);
+    pulse->setWindowTitle(tr("Import"));
     pulse->setWindowModality(Qt::WindowModal);
     pulse->setMinimumDuration(0);
     pulse->setAutoClose(false);
@@ -440,9 +450,9 @@ void MainWindow::startImport(const QStringList &directories)
     pulse->show();
 
     connect(scan, &ImportScanThread::scanned, pulse,
-            [pulse](int done, int total, const QString &source) {
+            [this, pulse](int done, int total, const QString &source) {
                 pulse->setLabelText(
-                    QStringLiteral("正在预扫描（%1/%2）：%3")
+                    tr("Prescanning (%1/%2): %3")
                         .arg(done).arg(total)
                         .arg(QDir::toNativeSeparators(source)));
             });
@@ -477,7 +487,7 @@ void MainWindow::startImport(const QStringList &directories)
 
         for (const ImportSourcePlan &result : results) {
             if (!result.error.isEmpty())
-                errors.append(QStringLiteral("%1：%2").arg(
+                errors.append(tr("%1: %2").arg(
                     QDir::toNativeSeparators(result.source), result.error));
             if (result.plan == nullptr)
                 continue;
@@ -504,12 +514,12 @@ void MainWindow::startImport(const QStringList &directories)
             RhErr targetErr = RH_OK;
             patchTargets = store_games_list(m_store, &filter, &targetErr);
             if (targetErr != RH_OK)
-                errors.append(QStringLiteral("读取补丁归属游戏列表失败：%1")
+                errors.append(tr("Failed to read the game list for patch assignment: %1")
                                   .arg(QString::fromUtf8(rh_err_str(targetErr))));
             if (patchTargets != nullptr && patchTargets->len == 0)
                 QMessageBox::information(
-                    this, QStringLiteral("纯补丁包归属"),
-                    QStringLiteral("纯补丁包只能归属到已有游戏；当前库为空，这些包将跳过。"));
+                    this, tr("Patch-Only Archive Assignment"),
+                    tr("Patch-only archives can only be assigned to existing games; the current library is empty, so these archives will be skipped."));
         }
 
         /* 所有平台和归属询问都集中在主线程；执行线程保持零交互。 */
@@ -540,7 +550,7 @@ void MainWindow::startImport(const QStringList &directories)
                         ? found : rh_platform_all(m_rules);
 
                     if (platforms->len > 0) {
-                        QStringList choices{QStringLiteral("不指定（执行时跳过）")};
+                        QStringList choices{tr("Unspecified (skipped during execution)")};
                         for (guint p = 0; p < platforms->len; p++) {
                             const RhPlatform *platform = static_cast<const RhPlatform *>(
                                 g_ptr_array_index(platforms, p));
@@ -549,9 +559,9 @@ void MainWindow::startImport(const QStringList &directories)
 
                         bool ok = false;
                         const QString picked = QInputDialog::getItem(
-                            this, QStringLiteral("指定平台"),
-                            QStringLiteral("条目：%1\n来源目录：%2\n"
-                                           "请选择平台；不指定的条目将在执行时跳过。")
+                            this, tr("Select Platform"),
+                            tr("Entry: %1\nSource directory: %2\n"
+                               "Select a platform; unspecified entries will be skipped during execution.")
                                 .arg(QString::fromUtf8(entry->name),
                                      QDir::toNativeSeparators(result.source)),
                             choices, 0, false, &ok);
@@ -595,16 +605,16 @@ void MainWindow::startImport(const QStringList &directories)
         const int newGames = importable - assignedPatchArchives;
 
         const QString detailText =
-            QStringLiteral("扫描文件：%1\n"
-                           "本次导入条目：%2（新建游戏 %15，纯补丁包 %16）\n"
-                           "其中媒体文件：%3，补丁文件：%4\n"
-                           "跳过：未知类型 %5，顶层媒体 %6\n"
-                           "纯补丁包：共 %7，未归属 %17（执行时跳过）\n"
-                           "待定平台压缩包：混装 %8，二义 %9"
-                           "（其中未指定 %10，执行时跳过）\n"
-                           "平台未定（执行时跳过）：%11\n"
-                           "目标目录已存在（执行时跳过）：%12\n"
-                           "编码推测名：%13，转义名：%14")
+            tr("Files scanned: %1\n"
+               "Entries to import: %2 (new games %15, patch-only archives %16)\n"
+               "Media files: %3, patch files: %4\n"
+               "Skipped: unknown types %5, top-level media %6\n"
+               "Patch-only archives: %7 total, unassigned %17 (skipped during execution)\n"
+               "Archives with undetermined platforms: mixed %8, ambiguous %9"
+               " (including unspecified %10, skipped during execution)\n"
+               "Undetermined platform (skipped during execution): %11\n"
+               "Target directory already exists (skipped during execution): %12\n"
+               "Encoding-guessed names: %13, escaped names: %14")
                 .arg(filesScanned)
                 .arg(importable)
                 .arg(mediaCount)
@@ -629,29 +639,30 @@ void MainWindow::startImport(const QStringList &directories)
 
             QMessageBox box(this);
             box.setIcon(QMessageBox::Information);
-            box.setWindowTitle(QStringLiteral("导入"));
+            box.setWindowTitle(tr("Import"));
             box.setText(entries == 0
-                ? QStringLiteral("没有可导入的条目。")
-                : QStringLiteral("%1 个条目均未满足导入条件，执行时都会跳过。").arg(entries));
+                ? tr("No entries can be imported.")
+                : tr("All %1 entries fail the import requirements and will be skipped during execution.")
+                      .arg(entries));
             box.setDetailedText(detailText +
                                 (errors.isEmpty()
                                      ? QString()
-                                     : QStringLiteral("\n\n错误：\n") + errors.join('\n')));
+                                     : tr("\n\nErrors:\n") + errors.join('\n')));
             box.exec();
             return;
         }
 
         QMessageBox confirm(this);
         confirm.setIcon(QMessageBox::Question);
-        confirm.setWindowTitle(QStringLiteral("确认导入"));
-        confirm.setText(QStringLiteral("将处理 %1 个导入条目（新建游戏 %2，纯补丁包 %3），是否继续？")
+        confirm.setWindowTitle(tr("Confirm Import"));
+        confirm.setText(tr("%1 import entries will be processed (new games %2, patch-only archives %3). Continue?")
                             .arg(importable).arg(newGames).arg(assignedPatchArchives));
         confirm.setDetailedText(detailText);
         confirm.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
         confirm.setDefaultButton(QMessageBox::Yes);
         if (!errors.isEmpty())
             confirm.setInformativeText(
-                QStringLiteral("有 %1 个来源目录扫描失败，详见详情。").arg(errors.size()));
+                tr("%1 source directories failed to scan; see details.").arg(errors.size()));
 
         if (confirm.exec() != QMessageBox::Yes) {
             rh_import_plans_free(plans);
@@ -669,8 +680,8 @@ void MainWindow::startImport(const QStringList &directories)
             jobId, true, true, this);
 
         QProgressDialog *progress = new QProgressDialog(
-            QStringLiteral("正在导入…"), QStringLiteral("取消"), 0, entries, this);
-        progress->setWindowTitle(QStringLiteral("导入"));
+            tr("Importing…"), tr("Cancel"), 0, entries, this);
+        progress->setWindowTitle(tr("Import"));
         progress->setWindowModality(Qt::WindowModal);
         progress->setMinimumDuration(0);
         progress->setAutoClose(false);
@@ -679,15 +690,15 @@ void MainWindow::startImport(const QStringList &directories)
         progress->show();
 
         connect(exec, &ImportExecThread::progressChanged, progress,
-                [progress](int done, int total, const QString &label) {
+                [this, progress](int done, int total, const QString &label) {
                     progress->setMaximum(total > 0 ? total : 1);
                     progress->setValue(done);
                     if (!label.isEmpty())
-                        progress->setLabelText(QStringLiteral("正在导入：%1").arg(label));
+                        progress->setLabelText(tr("Importing: %1").arg(label));
                 });
-        connect(progress, &QProgressDialog::canceled, exec, [exec, progress]() {
+        connect(progress, &QProgressDialog::canceled, exec, [this, exec, progress]() {
             exec->cancel();
-            progress->setLabelText(QStringLiteral("正在取消…"));
+            progress->setLabelText(tr("Canceling…"));
             progress->setCancelButton(nullptr);
         });
 
@@ -704,7 +715,7 @@ void MainWindow::startImport(const QStringList &directories)
             if (failed)
                 finishError = error;
             else if (stats.cancelled)
-                finishError = QStringLiteral("用户取消");
+                finishError = tr("User canceled");
 
             if (jobId > 0) {
                 const QByteArray utf8 = finishError.toUtf8();
@@ -717,13 +728,13 @@ void MainWindow::startImport(const QStringList &directories)
             refreshPlatforms();
             updateStatus();
 
-            QString text = QStringLiteral("导入完成：成功 %1，跳过 %2，失败 %3。")
+            QString text = tr("Import finished: %1 succeeded, %2 skipped, %3 failed.")
                                .arg(stats.imported).arg(stats.skipped).arg(stats.failed);
             if (stats.cancelled)
-                text = QStringLiteral("导入已取消。") + text;
+                text = tr("Import canceled.") + text;
             else if (failed)
-                text += QStringLiteral("\n错误：%1").arg(error);
-            QMessageBox::information(this, QStringLiteral("导入"), text);
+                text += tr("\nError: %1").arg(error);
+            QMessageBox::information(this, tr("Import"), text);
         });
 
         exec->start();

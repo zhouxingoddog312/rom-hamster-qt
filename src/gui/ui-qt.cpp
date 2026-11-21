@@ -1,5 +1,6 @@
 #include "ui-qt.h"
 
+#include <QCoreApplication>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFileDialog>
@@ -158,15 +159,19 @@ int on_ask_media_kind(void *ud, const char *path, const char *remember_key)
 {
     Q_UNUSED(remember_key);
     QtUiState *state = static_cast<QtUiState *>(ud);
-    QStringList labels = {QStringLiteral("封面"), QStringLiteral("截图"),
-                          QStringLiteral("视频"), QStringLiteral("横幅"),
-                          QStringLiteral("合成图"), QStringLiteral("说明"),
-                          QStringLiteral("补丁")};
+    QStringList labels = {QCoreApplication::translate("RhQtUiBridge", "Cover"),
+                          QCoreApplication::translate("RhQtUiBridge", "Screenshot"),
+                          QCoreApplication::translate("RhQtUiBridge", "Video"),
+                          QCoreApplication::translate("RhQtUiBridge", "Marquee"),
+                          QCoreApplication::translate("RhQtUiBridge", "Composite Image"),
+                          QCoreApplication::translate("RhQtUiBridge", "Description"),
+                          QCoreApplication::translate("RhQtUiBridge", "Patch")};
     bool ok = false;
     QString file = path != nullptr ? QString::fromUtf8(path) : QString();
     QString picked = QInputDialog::getItem(
         state != nullptr ? state->parent : nullptr,
-        QStringLiteral("媒体类型"), file, labels, 0, false, &ok);
+        QCoreApplication::translate("RhQtUiBridge", "Media Type"),
+        file, labels, 0, false, &ok);
     return ok ? labels.indexOf(picked) : -1;
 }
 

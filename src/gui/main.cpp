@@ -1,5 +1,6 @@
 #include <QApplication>
 #include <QCommandLineParser>
+#include <QCoreApplication>
 #include <QDesktopServices>
 #include <QDir>
 #include <QFile>
@@ -174,17 +175,23 @@ int main(int argc, char *argv[])
     installTranslator(app);
 
     QCommandLineParser parser;
-    parser.setApplicationDescription(QStringLiteral("ROM 库管理器"));
+    parser.setApplicationDescription(
+        QCoreApplication::translate("rom-hamster", "ROM Library Manager"));
     parser.addHelpOption();
     parser.addVersionOption();
     QCommandLineOption dbOption(
         {QStringLiteral("d"), QStringLiteral("db")},
-        QStringLiteral("数据库文件（默认 <库根目录>/romhamster.db）"), QStringLiteral("PATH"));
+        QCoreApplication::translate(
+            "rom-hamster", "Database file (default: <library root>/romhamster.db)"),
+        QStringLiteral("PATH"));
     QCommandLineOption rootOption(
         {QStringLiteral("r"), QStringLiteral("root")},
-        QStringLiteral("ROM 库根目录"), QStringLiteral("DIR"));
+        QCoreApplication::translate("rom-hamster", "ROM library root directory"),
+        QStringLiteral("DIR"));
     QCommandLineOption importOption(
-        QStringLiteral("import"), QStringLiteral("启动后导入目录"), QStringLiteral("DIR"));
+        QStringLiteral("import"),
+        QCoreApplication::translate("rom-hamster", "Import directory after startup"),
+        QStringLiteral("DIR"));
     parser.addOption(dbOption);
     parser.addOption(rootOption);
     parser.addOption(importOption);
@@ -221,15 +228,18 @@ int main(int argc, char *argv[])
             root = settings.value(QStringLiteral("library/root")).toString();
         if (root.isEmpty() || !QFileInfo(root).isDir()) {
             const QString picked = QFileDialog::getExistingDirectory(
-                nullptr, QStringLiteral("选择 ROM 库根目录"),
+                nullptr,
+                QCoreApplication::translate("rom-hamster", "Select ROM Library Root Directory"),
                 QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation));
             if (picked.isEmpty())
                 return 0;
             root = picked;
         }
         if (!QFileInfo(root).isDir() && !QDir().mkpath(root)) {
-            QMessageBox::critical(nullptr, QStringLiteral("rom-hamster"),
-                                  QStringLiteral("无法创建库根目录：%1").arg(root));
+            QMessageBox::critical(
+                nullptr, QStringLiteral("rom-hamster"),
+                QCoreApplication::translate("rom-hamster", "Unable to create library root directory: %1")
+                    .arg(root));
             return 1;
         }
         db = QDir(root).filePath(QStringLiteral("romhamster.db"));
@@ -242,7 +252,7 @@ int main(int argc, char *argv[])
     RhStore *store = store_open(db.toUtf8().constData(), &err);
     if (store == nullptr) {
         QMessageBox::critical(
-            nullptr, QStringLiteral("无法打开数据库"),
+            nullptr, QCoreApplication::translate("rom-hamster", "Unable to Open Database"),
             QStringLiteral("%1\n%2").arg(QDir::toNativeSeparators(db),
                                          QString::fromUtf8(rh_err_str(err))));
         return 1;
@@ -260,7 +270,7 @@ int main(int argc, char *argv[])
             qWarning("platforms.conf: %s", message);
         g_free(message);
     } else {
-        qWarning("未找到 platforms.conf，导入功能不可用");
+        qWarning("platforms.conf not found; import is unavailable");
     }
 
     RhCtx *ctx = rh_ctx_new();
@@ -272,9 +282,11 @@ int main(int argc, char *argv[])
 
     if (readOnly) {
         QMessageBox::warning(
-            &window, QStringLiteral("只读库"),
-            QStringLiteral("该库由更高版本的 rom-hamster 创建，当前以只读方式打开。\n"
-                           "请升级 rom-hamster 后再写入。"));
+            &window, QCoreApplication::translate("rom-hamster", "Read-Only Library"),
+            QCoreApplication::translate(
+                "rom-hamster",
+                "This library was created by a newer version of rom-hamster and is open in read-only mode.\n"
+                "Upgrade rom-hamster before writing to it."));
     }
 
     if (!importDirs.isEmpty())
@@ -295,7 +307,8 @@ int main(int argc, char *argv[])
                          });
     });
     if (!server.listen(serverName))
-        qWarning("单实例服务启动失败：%s", server.errorString().toUtf8().constData());
+        qWarning("Failed to start single-instance server: %s",
+                 server.errorString().toUtf8().constData());
 
     UpdateChecker checker;
     QObject::connect(&checker, &UpdateChecker::updateAvailable, &window,
@@ -304,8 +317,11 @@ int main(int argc, char *argv[])
                          box->setAttribute(Qt::WA_DeleteOnClose);
                          box->setWindowModality(Qt::NonModal);
                          box->setIcon(QMessageBox::Information);
-                         box->setWindowTitle(QStringLiteral("发现新版本"));
-                         box->setText(QStringLiteral("发现新版本 %1，是否打开下载页？")
+                         box->setWindowTitle(
+                             QCoreApplication::translate("rom-hamster", "New Version Available"));
+                         box->setText(QCoreApplication::translate(
+                                          "rom-hamster",
+                                          "Version %1 is available. Open the download page?")
                                           .arg(version));
                          box->setStandardButtons(QMessageBox::Open | QMessageBox::Close);
                          QObject::connect(box, &QMessageBox::finished, box,

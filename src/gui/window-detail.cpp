@@ -123,7 +123,7 @@ DetailWindow::DetailWindow(RhStore *store, const QString &root, const QString &g
                            QWidget *parent)
     : QDialog(parent), m_root(root)
 {
-    setWindowTitle(QStringLiteral("游戏详情"));
+    setWindowTitle(tr("Game Details"));
     resize(980, 760);
 
     RhErr err = RH_OK;
@@ -139,9 +139,9 @@ DetailWindow::DetailWindow(RhStore *store, const QString &root, const QString &g
     layout->addWidget(title);
 
     if (m_detail == nullptr) {
-        title->setText(QStringLiteral("无法加载游戏详情"));
+        title->setText(tr("Unable to Load Game Details"));
         QLabel *reason = new QLabel(
-            QStringLiteral("错误：%1").arg(QString::fromUtf8(rh_err_str(err))), this);
+            tr("Error: %1").arg(QString::fromUtf8(rh_err_str(err))), this);
         layout->addWidget(reason);
         return;
     }
@@ -150,7 +150,7 @@ DetailWindow::DetailWindow(RhStore *store, const QString &root, const QString &g
     title->setText(QString::fromUtf8(game->name != nullptr ? game->name : ""));
     m_dirPath = QString::fromUtf8(game->dir_path != nullptr ? game->dir_path : "");
 
-    QGroupBox *meta = new QGroupBox(QStringLiteral("元数据"), this);
+    QGroupBox *meta = new QGroupBox(tr("Metadata"), this);
     QFormLayout *form = new QFormLayout(meta);
     auto addRow = [form](const QString &label, const QString &value) {
         if (value.isEmpty())
@@ -158,34 +158,34 @@ DetailWindow::DetailWindow(RhStore *store, const QString &root, const QString &g
         form->addRow(label, new QLabel(value));
     };
 
-    addRow(QStringLiteral("平台"), QString::fromUtf8(game->platform != nullptr ? game->platform : ""));
-    addRow(QStringLiteral("开发商"), QString::fromUtf8(game->developer != nullptr ? game->developer : ""));
-    addRow(QStringLiteral("发行商"), QString::fromUtf8(game->publisher != nullptr ? game->publisher : ""));
-    addRow(QStringLiteral("年份"), game->year > 0 ? QString::number(game->year) : QString());
-    addRow(QStringLiteral("类型"), QString::fromUtf8(game->genre != nullptr ? game->genre : ""));
-    addRow(QStringLiteral("玩家数"), game->players > 0 ? QString::number(game->players) : QString());
-    addRow(QStringLiteral("区域"), QString::fromUtf8(game->region != nullptr ? game->region : ""));
-    addRow(QStringLiteral("评分"), game->rating > 0.0 ? QString::number(game->rating, 'f', 2) : QString());
-    addRow(QStringLiteral("ROM 格式"), QString::fromUtf8(game->rom_format != nullptr ? game->rom_format : ""));
-    addRow(QStringLiteral("ROM 状态"), QString::fromUtf8(game->rom_status != nullptr ? game->rom_status : ""));
-    addRow(QStringLiteral("DAT 来源"), QString::fromUtf8(game->dat_source != nullptr ? game->dat_source : ""));
-    addRow(QStringLiteral("补丁类型"), QString::fromUtf8(game->patch_type != nullptr ? game->patch_type : ""));
-    addRow(QStringLiteral("多碟"), game->is_multi_disc ? QStringLiteral("是") : QString());
-    addRow(QStringLiteral("街机"), game->is_arcade ? QStringLiteral("是") : QString());
-    addRow(QStringLiteral("目录"), m_dirPath);
-    addRow(QStringLiteral("ROM 大小"), formatBytes(m_detail->rom_bytes));
-    addRow(QStringLiteral("媒体大小"), formatBytes(m_detail->media_bytes));
+    addRow(tr("Platform"), QString::fromUtf8(game->platform != nullptr ? game->platform : ""));
+    addRow(tr("Developer"), QString::fromUtf8(game->developer != nullptr ? game->developer : ""));
+    addRow(tr("Publisher"), QString::fromUtf8(game->publisher != nullptr ? game->publisher : ""));
+    addRow(tr("Year"), game->year > 0 ? QString::number(game->year) : QString());
+    addRow(tr("Genre"), QString::fromUtf8(game->genre != nullptr ? game->genre : ""));
+    addRow(tr("Players"), game->players > 0 ? QString::number(game->players) : QString());
+    addRow(tr("Region"), QString::fromUtf8(game->region != nullptr ? game->region : ""));
+    addRow(tr("Rating"), game->rating > 0.0 ? QString::number(game->rating, 'f', 2) : QString());
+    addRow(tr("ROM Format"), QString::fromUtf8(game->rom_format != nullptr ? game->rom_format : ""));
+    addRow(tr("ROM Status"), QString::fromUtf8(game->rom_status != nullptr ? game->rom_status : ""));
+    addRow(tr("DAT Source"), QString::fromUtf8(game->dat_source != nullptr ? game->dat_source : ""));
+    addRow(tr("Patch Type"), QString::fromUtf8(game->patch_type != nullptr ? game->patch_type : ""));
+    addRow(tr("Multi-disc"), game->is_multi_disc ? tr("Yes") : QString());
+    addRow(tr("Arcade"), game->is_arcade ? tr("Yes") : QString());
+    addRow(tr("Directory"), m_dirPath);
+    addRow(tr("ROM Size"), formatBytes(m_detail->rom_bytes));
+    addRow(tr("Media Size"), formatBytes(m_detail->media_bytes));
     layout->addWidget(meta);
 
     m_tabs = new QTabWidget(this);
-    m_tabs->addTab(buildRomTab(), QStringLiteral("ROM 文件"));
-    m_tabs->addTab(buildMediaTab(QStringLiteral("covers"), false), QStringLiteral("封面"));
-    m_tabs->addTab(buildMediaTab(QStringLiteral("screenshots"), false), QStringLiteral("截图"));
-    m_tabs->addTab(buildMediaTab(QStringLiteral("videos"), true), QStringLiteral("视频"));
-    m_tabs->addTab(buildMediaTab(QStringLiteral("marquees"), false), QStringLiteral("横幅"));
-    m_tabs->addTab(buildMediaTab(QStringLiteral("miximages"), false), QStringLiteral("合成图"));
-    m_tabs->addTab(buildDescriptionTab(), QStringLiteral("说明"));
-    m_tabs->addTab(buildMediaTab(QStringLiteral("patcher"), false), QStringLiteral("补丁"));
+    m_tabs->addTab(buildRomTab(), tr("ROM Files"));
+    m_tabs->addTab(buildMediaTab(QStringLiteral("covers"), false), tr("Covers"));
+    m_tabs->addTab(buildMediaTab(QStringLiteral("screenshots"), false), tr("Screenshots"));
+    m_tabs->addTab(buildMediaTab(QStringLiteral("videos"), true), tr("Videos"));
+    m_tabs->addTab(buildMediaTab(QStringLiteral("marquees"), false), tr("Marquees"));
+    m_tabs->addTab(buildMediaTab(QStringLiteral("miximages"), false), tr("Composite Images"));
+    m_tabs->addTab(buildDescriptionTab(), tr("Description"));
+    m_tabs->addTab(buildMediaTab(QStringLiteral("patcher"), false), tr("Patches"));
     layout->addWidget(m_tabs, 1);
 }
 
@@ -204,9 +204,9 @@ QString DetailWindow::filePath(const QString &filename) const
 QWidget *DetailWindow::buildRomTab()
 {
     QTableWidget *table = new QTableWidget(m_detail->roms->len, 6, this);
-    table->setHorizontalHeaderLabels({QStringLiteral("文件名"), QStringLiteral("大小"),
-                                      QStringLiteral("碟号"), QStringLiteral("CRC32"),
-                                      QStringLiteral("MD5"), QStringLiteral("SHA1")});
+    table->setHorizontalHeaderLabels({tr("Filename"), tr("Size"), tr("Disc No."),
+                                      QStringLiteral("CRC32"), QStringLiteral("MD5"),
+                                      QStringLiteral("SHA1")});
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
     table->verticalHeader()->setVisible(false);
@@ -243,7 +243,7 @@ QWidget *DetailWindow::buildMediaTab(const QString &kind, bool externalPlayer)
     QLabel *preview = new QLabel(splitter);
     preview->setAlignment(Qt::AlignCenter);
     preview->setMinimumHeight(220);
-    preview->setText(QStringLiteral("选择文件查看预览"));
+    preview->setText(tr("Select a file to preview"));
     preview->setTextInteractionFlags(Qt::TextSelectableByMouse);
     splitter->addWidget(list);
     splitter->addWidget(preview);
@@ -264,13 +264,12 @@ QWidget *DetailWindow::buildMediaTab(const QString &kind, bool externalPlayer)
     }
 
     if (files.isEmpty()) {
-        preview->setText(QStringLiteral("（无）"));
+        preview->setText(tr("(None)"));
         return page;
     }
 
     QPushButton *open = new QPushButton(
-        externalPlayer ? QStringLiteral("用外部播放器打开")
-                       : QStringLiteral("用系统程序打开"),
+        externalPlayer ? tr("Open with External Player") : tr("Open with System Application"),
         page);
     open->setEnabled(false);
     layout->addWidget(open, 0, Qt::AlignRight);
@@ -283,20 +282,20 @@ QWidget *DetailWindow::buildMediaTab(const QString &kind, bool externalPlayer)
                          const QString path = filePath(filename);
                          if (isVideoFile(filename) || !isImageFile(filename)) {
                              preview->setPixmap(QPixmap());
-                             preview->setText(QStringLiteral("非图片文件：%1").arg(path));
+                             preview->setText(tr("Not an image file: %1").arg(path));
                              return;
                          }
-                         preview->setText(QStringLiteral("正在加载…"));
+                         preview->setText(tr("Loading…"));
                          ThumbnailTask *task =
                              new ThumbnailTask(path, QSize(720, 480));
                          QObject::connect(task, &ThumbnailTask::ready, this,
-                                          [preview, path](const QString &loaded,
-                                                          const QImage &image) {
+                                          [this, preview, path](const QString &loaded,
+                                                                const QImage &image) {
                                               if (loaded != path)
                                                   return;
                                               if (image.isNull()) {
                                                   preview->setText(
-                                                      QStringLiteral("无法解码：%1").arg(path));
+                                                      tr("Unable to decode: %1").arg(path));
                                                   return;
                                               }
                                               preview->setPixmap(QPixmap::fromImage(image));
@@ -323,7 +322,7 @@ QWidget *DetailWindow::buildDescriptionTab()
     const gchar *description = m_detail->game->description;
     text->setPlainText(description != nullptr && *description != '\0'
                            ? QString::fromUtf8(description)
-                           : QStringLiteral("（无说明）"));
+                           : tr("(No description)"));
     layout->addWidget(text, 1);
 
     QStringList introFiles;
