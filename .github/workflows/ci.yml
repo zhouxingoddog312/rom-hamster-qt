@@ -197,6 +197,18 @@ jobs:
       - name: Build
         run: cmake --build build/linux-gui --parallel
       - name: Test
-        run: ctest --test-dir build/linux-gui --output-on-failure
+        run: |
+          set +e
+          ctest --test-dir build/linux-gui --output-on-failure 2>&1 |
+            tee "$RUNNER_TEMP/ctest.log"
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -ne 0 ]; then
+            # 失败时把末尾输出转成注解，便于在 checks 页面直接看到失败的用例名。
+            tail -n 40 "$RUNNER_TEMP/ctest.log" |
+              while IFS= read -r line; do
+                echo "::error::$line"
+              done
+          fi
+          exit "$rc"
       - name: Check glibc baseline
         run: sh packaging/check-glibc.sh --max 2.35 build/linux-gui/rom-hamster build/linux-gui/rom-hamster-gui
