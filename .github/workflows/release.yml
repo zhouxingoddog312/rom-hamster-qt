@@ -82,6 +82,11 @@ jobs:
         run: ctest --test-dir build/linux-gui --output-on-failure
       - name: Package deb
         run: |
+          # 关键：GitHub Actions 在 Ubuntu 上用 `bash -eo pipefail` 执行 run 步骤，
+          # 默认带 -e（errexit）。若直接重定向运行脚本，脚本失败会让 step 立即退出，
+          # 跳过后面所有诊断（这正是上一轮注解丢失的原因）。这里先 set +e 关闭 errexit，
+          # 确保能拿到真实 rc 并输出诊断，最后再 exit "$rc" 让 step 正确标记失败。
+          set +e
           # 前置快照写在工作流 shell 里：即使脚本被杀死，这里也能存活保留现场。
           {
             echo "=== PRE free -m ==="; free -m
@@ -89,21 +94,24 @@ jobs:
             echo "=== PRE cmake ==="; cmake --version | head -1
           } > /tmp/pre-debug.txt 2>&1
           # 直接重定向到文件（不走管道），确保 $? 是脚本真实退出码：
-          # 被信号杀死时为 128+N（SIGKILL=137 / SIGTERM=143），正常失败为 1。
+          # 被信号杀死时为 128+N（SIGKILL=137 / SIGTERM=143 / SIGSEGV=139），正常失败为 1。
           bash packaging/make-gui-deb.sh > /tmp/make-gui-deb.log 2>&1
           rc=$?
           echo "script_rc=$rc"
           if [ "$rc" -ne 0 ]; then
             {
-              echo "make-gui-deb.sh FAILED (rc=$rc) — full log in artifact linux-gui-debug-log"
-              echo "=== SCRIPT LOG (last 40, numbered) ==="; nl -ba /tmp/make-gui-deb.log | tail -n 40
-              echo "=== dmesg tail -10 (look for OOM 'Killed process') ==="; dmesg 2>/dev/null | tail -10 || echo "(dmesg unavailable)"
-              echo "=== POST free -m ==="; free -m
-              echo "=== /proc/meminfo (head 8) ==="; head -8 /proc/meminfo
-              echo "=== PRE DEBUG ==="; cat /tmp/pre-debug.txt
+              echo "make-gui-deb.sh FAILED (rc=$rc) [128+N means signal: 137=SIGKILL 143=SIGTERM 139=SIGSEGV]"
+              echo "=== SCRIPT LOG tail -30 (xtrace '+ cmd' shows last command before death) ==="
+              tail -n 30 /tmp/make-gui-deb.log
+              echo "=== dmesg tail -5 (look for OOM 'Killed process') ==="
+              dmesg 2>/dev/null | tail -5 || echo "(dmesg unavailable)"
+              echo "=== POST free -m ==="
+              free -m
+              echo "=== PRE DEBUG ==="
+              cat /tmp/pre-debug.txt
             } > /tmp/fail-debug.txt 2>&1
-            # 每个 check run 最多 50 条注解；把最关键的（脚本日志尾部，含 xtrace
-            # 死亡点）放在最前面，超出部分见上传的完整日志 artifact。
+            # 每个 check run 最多 50 条注解：把最关键的（rc + 日志尾部 xtrace 死亡点
+            # + dmesg）放在前面；完整内容见上传的 linux-gui-debug-log artifact。
             sed -e 's/%/%25/g' -e 's/:/%3A/g' /tmp/fail-debug.txt | while IFS= read -r line; do
               [ -n "$line" ] && echo "::error::$line"
             done
