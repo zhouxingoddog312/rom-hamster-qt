@@ -54,9 +54,29 @@ qt_ld_library_path="$qt_libs${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 echo "==> 安装 GUI 到 $stage"
 echo "    build_dir=$build_dir"
 cmake --version 2>/dev/null | head -n1
+echo "RH_DIAG disk:" >&2; df -h / /tmp "$build_dir" 2>&1 | sed 's/^/  /' >&2 || true
+echo "RH_DIAG mem:" >&2; free -m 2>&1 | sed 's/^/  /' >&2 || true
 rm -rf "$work"
 mkdir -p "$stage/usr"
+# 显式捕获 cmake 退出码：ERR trap 在子进程被信号杀死时未必触发，且输出可能
+# 因管道缓冲丢失；这里绕过 set -e 单独取 rc，确保拿到真实退出码（143/137/139
+# 分别对应 SIGTERM/SIGKILL/SIGSEGV，1 则是 cmake 自身报错）。
+set +e
 cmake --install "$build_dir" --prefix "$stage/usr" --strip
+cmake_rc=$?
+set -e
+echo "RH_DIAG cmake_install_exit=$cmake_rc (strip=on)" >&2
+if [ "$cmake_rc" -ne 0 ]; then
+  echo "RH_DIAG cmake failed with --strip; retrying WITHOUT --strip to isolate:" >&2
+  rm -rf "$work"
+  mkdir -p "$stage/usr"
+  set +e
+  cmake --install "$build_dir" --prefix "$stage/usr" 2>&1 | tail -n 12
+  nostrip_rc=${PIPESTATUS[0]}
+  set -e
+  echo "RH_DIAG cmake_install_nostrip_exit=$nostrip_rc" >&2
+  exit "$cmake_rc"
+fi
 
 # CLI、核心库、出厂数据、man page 属于 rom-hamster(-data)，不要重复打包
 rm -f "$stage/usr/bin/rom-hamster"
