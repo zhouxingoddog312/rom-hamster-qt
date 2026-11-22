@@ -118,7 +118,8 @@ jobs:
             exit "$rc"
           fi
       - name: Upload debug log
-        if: always()
+        # 仅在打包失败时上传：成功时若上传，release job 会把调试文件一起发进 Release。
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: linux-gui-debug-log
@@ -262,6 +263,8 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: dist
+          # 只下载 4 个产物 artifact，避免把调试类 artifact 混进 dist/ 后被发布出去。
+          pattern: '{linux-cli,linux-gui,windows-cli,windows-gui}'
           merge-multiple: true
       - name: Verify version matches tag
         if: startsWith(github.ref, 'refs/tags/v')
