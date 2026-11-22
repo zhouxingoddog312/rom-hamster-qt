@@ -17,9 +17,12 @@
 # 核心库与出厂数据由 rom-hamster / rom-hamster-data 包提供，本包只 Depends 它们。
 set -eu
 
-# 诊断：任一命令失败时把行号/退出码/命令打到 stderr，供 CI 注解捕获，
-# 用来定位 cmake --install 这类“静默死亡”（无错误输出）的根因。
+# 诊断：失败时打印行号/退出码/命令；xtrace 把每条命令打到 stderr（无缓冲），
+# 即使进程被信号杀死，也能从日志尾部看到“最后执行的是哪条命令”。EXIT trap
+# 标记是否走到了正常退出（被 SIGKILL 时不会触发，可据此区分信号杀）。
 trap 'echo "RH_TRAP line=$LINENO exit=$? cmd=$BASH_COMMAND" >&2' ERR
+trap 'echo "RH_EXIT_TRAP rc=$?" >&2' EXIT
+set -x
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
 build_dir=${BUILD_DIR:-$repo/build/linux-gui}
