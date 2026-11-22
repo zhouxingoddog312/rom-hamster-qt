@@ -17,6 +17,10 @@
 # 核心库与出厂数据由 rom-hamster / rom-hamster-data 包提供，本包只 Depends 它们。
 set -eu
 
+# 诊断：任一命令失败时把行号/退出码/命令打到 stderr，供 CI 注解捕获，
+# 用来定位 cmake --install 这类“静默死亡”（无错误输出）的根因。
+trap 'echo "RH_TRAP line=$LINENO exit=$? cmd=$BASH_COMMAND" >&2' ERR
+
 repo=$(cd "$(dirname "$0")/.." && pwd)
 build_dir=${BUILD_DIR:-$repo/build/linux-gui}
 work=${WORK:-/tmp/rom-hamster-gui-deb}
@@ -48,6 +52,8 @@ qt_plugins=$("$qmake" -query QT_INSTALL_PLUGINS)
 qt_ld_library_path="$qt_libs${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 echo "==> 安装 GUI 到 $stage"
+echo "    build_dir=$build_dir"
+cmake --version 2>/dev/null | head -n1
 rm -rf "$work"
 mkdir -p "$stage/usr"
 cmake --install "$build_dir" --prefix "$stage/usr" --strip

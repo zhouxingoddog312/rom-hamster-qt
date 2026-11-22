@@ -85,8 +85,8 @@ jobs:
           bash packaging/make-gui-deb.sh 2>&1 | tee /tmp/make-gui-deb.log
           rc=${PIPESTATUS[0]}
           if [ "$rc" -ne 0 ]; then
-            echo "::error::make-gui-deb.sh failed (exit $rc); tail of log:"
-            tail -n 60 /tmp/make-gui-deb.log | sed -e 's/%/%25/g' -e 's/:/%3A/g' | while IFS= read -r line; do
+            echo "::error::make-gui-deb.sh failed (exit $rc); last 150 log lines (numbered):"
+            nl -ba /tmp/make-gui-deb.log | tail -n 150 | sed -e 's/%/%25/g' -e 's/:/%3A/g' | while IFS= read -r line; do
               [ -n "$line" ] && echo "::error::$line"
             done
             exit "$rc"
