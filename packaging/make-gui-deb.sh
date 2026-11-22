@@ -263,8 +263,17 @@ echo "==> 打包 $deb"
 dpkg-deb --root-owner-group -Zxz --build "$stage" "$deb"
 
 echo "==> 自检"
-ldd "$stage/usr/bin/rom-hamster-gui" | grep -q "libQt6Core.so.6 => $stage" ||
-    { echo "自检失败：GUI 没有链接到包内 Qt6Core" >&2; exit 1; }
+# install-qt-action 会把 LD_LIBRARY_PATH 残留为 aqt 的 Qt 库目录；ldd 搜索时
+# LD_LIBRARY_PATH 优先于二进制自身的 RUNPATH，会把 Qt 依赖解析到构建机的 aqt
+# 目录而非包内，造成误报（CI 上 aqt 目录仍在，本地/真实系统上则不会）。
+# 这里清掉它，模拟真实安装环境：只靠包内 RUNPATH 解析，验证 deb 装到干净系
+# 统上的行为。失败时把 ldd 输出打出来，便于定位是缺库还是 RUNPATH 不对。
+if ! env -u LD_LIBRARY_PATH ldd "$stage/usr/bin/rom-hamster-gui" 2>&1 |
+        grep -q "libQt6Core.so.6 => $stage"; then
+    echo "自检失败：GUI 没有链接到包内 Qt6Core。ldd 输出（已清 LD_LIBRARY_PATH）：" >&2
+    env -u LD_LIBRARY_PATH ldd "$stage/usr/bin/rom-hamster-gui" >&2 || true
+    exit 1
+fi
 if (cd /tmp && env -u LD_LIBRARY_PATH "$stage/usr/bin/rom-hamster-gui" --version >/dev/null 2>&1); then
     echo "    --version OK"
 else
