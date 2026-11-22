@@ -40,6 +40,12 @@ fi
 qt_libs=$("$qmake" -query QT_INSTALL_LIBS)
 qt_plugins=$("$qmake" -query QT_INSTALL_PLUGINS)
 [ -d "$qt_libs" ] || { echo "$qmake 找不到 Qt 库目录" >&2; exit 1; }
+# 收集阶段靠 ldd 解析传递依赖。cmake --install 后二进制的 RUNPATH 已被
+# CMake 换成 INSTALL_RPATH（不含构建时 Qt 目录），若系统默认路径里没有 Qt
+# （CI 用 aqt 装在非默认位置即如此），裸 ldd 会报 not found 而复制不到任何
+# Qt 库。这里把构建时 Qt 库目录显式喂给 ldd；末尾自检仍用裸 ldd，验证的是
+# 包内 RUNPATH 能否解析到已复制进来的库。
+qt_ld_library_path="$qt_libs${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 echo "==> 安装 GUI 到 $stage"
 rm -rf "$work"
@@ -92,7 +98,8 @@ while [ -s "$todo" ]; do
         [ -f "$elf" ] || continue
         grep -qxF "$elf" "$done_list" && continue
         printf '%s\n' "$elf" >>"$done_list"
-        ldd "$elf" 2>/dev/null | sed -n 's/.*=> \(\/[^ ]*\).*/\1/p' |
+        env LD_LIBRARY_PATH="$qt_ld_library_path" ldd "$elf" 2>/dev/null |
+            sed -n 's/.*=> \(\/[^ ]*\).*/\1/p' |
             while IFS= read -r dep; do
                 case "$dep" in
                 "$qt_libs"/libQt6*.so.*)
@@ -113,7 +120,8 @@ for _ in 1 2 3; do
     before=$(ls "$qt_dir"/libQt6*.so.* 2>/dev/null | wc -l)
     for lib in "$qt_dir"/libQt6*.so.*; do
         [ -f "$lib" ] || continue
-        ldd "$lib" 2>/dev/null | sed -n 's/.*=> \(\/[^ ]*\).*/\1/p' |
+        env LD_LIBRARY_PATH="$qt_ld_library_path" ldd "$lib" 2>/dev/null |
+            sed -n 's/.*=> \(\/[^ ]*\).*/\1/p' |
             while IFS= read -r dep; do
                 case "$dep" in
                 "$qt_libs"/libQt6*.so.*)
