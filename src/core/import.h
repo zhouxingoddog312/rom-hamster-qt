@@ -24,6 +24,26 @@ typedef struct {
     GBytes *filename_raw;  /* 同一路径的原始字节 */
 } RhImportMediaFile;
 
+/* 导入前查重时用户可选的处置。默认忽略，避免无提示覆盖。 */
+typedef enum {
+    RH_DUP_IGNORE = 0,
+    RH_DUP_COEXIST = 1,
+    RH_DUP_OVERWRITE = 2
+} RhDupAction;
+
+typedef struct {
+    guint       rom_index;        /* entry->roms 下标 */
+    gchar      *sha1;
+    gchar      *existing_game_id;
+    gchar      *existing_rel_path;/* "<dir_path>/<filename>"，相对库根 */
+    gchar      *existing_filename;/* 库内 roms.filename 原值 */
+    gchar      *existing_name;    /* 已有游戏显示名 */
+    gint64      size;
+    gboolean    same_name;
+    int         similarity;       /* 0-100 */
+    RhDupAction action;
+} RhImportDup;
+
 typedef struct {
     gchar     *source_subdir;     /* 相对来源根目录；顶层文件为空串 */
     GBytes    *source_subdir_raw; /* source_subdir 的原始字节 */
@@ -41,10 +61,12 @@ typedef struct {
     gboolean   is_patch_bundle;   /* 纯补丁包：roms 保存外层包，patches 保存包内补丁 */
     gchar     *target_game_id;    /* 纯补丁包归属的已有游戏 ID，未指定为 NULL */
     gchar     *rom_format;        /* raw/zip/7z；归档条目按外层容器填写 */
+    GPtrArray *dups;              /* RhImportDup*，导入前查重结果 */
 } RhImportPlanEntry;
 
 typedef struct {
     GPtrArray *entries;        /* RhImportPlanEntry* */
+    gchar     *source_dir;     /* 预扫描来源根目录，查重时定位文件 */
     guint      files_scanned;
     guint      skipped_unknown;
     guint      skipped_media;
@@ -76,6 +98,17 @@ gboolean rh_import_entry_assign_platform(RhImportPlanEntry *entry,
 gboolean rh_import_entry_assign_patch_target(RhImportPlanEntry *entry,
                                              RhStore *store,
                                              const char *game_id);
+/*
+ * 导入前查重：对每个 ROM 按 size + canon_sha1/sha1 找库内已有文件。
+ * 结果写入 entry->dups，可重复调用（先清空旧结果）。只读，不改计划其他字段。
+ */
+RhErr rh_import_plan_detect_duplicates(RhImportPlan *plan, RhStore *store,
+                                       const char *root,
+                                       const RhPlatformRules *rules,
+                                       RhErr *out_err);
+/* 设置某个重复项的处置；rom_index 没有重复记录时返回 FALSE。 */
+gboolean rh_import_dup_set_action(RhImportPlanEntry *entry, guint rom_index,
+                                  RhDupAction action);
 void rh_import_plan_free(RhImportPlan *plan);
 
 /* ---------------------------------------------------------------------------
@@ -87,6 +120,9 @@ typedef struct {
     guint    skipped;      /* 平台未定、目标已存在等，不写库 */
     guint    failed;       /* 复制或写库失败，已回滚 */
     guint    renamed;      /* 因 DAT 标准名而改名的 ROM 数 */
+    guint    dup_ignored;  /* 因重复被忽略的 ROM 数 */
+    guint    dup_coexisted;/* 改名共存的数量 */
+    guint    dup_overwritten;/* 覆盖已有文件的数量 */
     gboolean cancelled;
 } RhImportExecStats;
 

@@ -48,6 +48,7 @@ typedef struct {
     gchar   *crc32;
     gchar   *md5;
     gchar   *sha1;
+    gchar   *canon_sha1;    /* 去头 SHA1；未计算为 NULL（v6） */
     gint64   dat_id;        /* 0 表示 NULL：本条 ROM 的匹配来自哪个 DAT */
     gchar   *dat_name;      /* 命中的 DAT 标准 ROM 名（v5），未匹配为 NULL */
     gint     sort;
@@ -85,8 +86,33 @@ typedef struct {
     GBytes  *filename_raw;  /* 同一路径的原始字节，可 NULL */
     gboolean has_size;
     gint64   size;
+    gchar   *crc32;         /* v6：整文件 CRC32 */
+    gchar   *sha1;          /* v6：整文件 SHA1 */
     gint     sort;
 } RhMediaFile;
+
+/* 重复簇里的一个文件。ROM 与媒体共用，kind 区分来源。 */
+typedef struct {
+    gchar   *game_id;
+    gchar   *game_name;
+    gchar   *platform;
+    gchar   *dir_path;      /* games.dir_path，相对库根 */
+    gchar   *filename;      /* roms/media 的相对文件名 */
+    gchar   *kind;          /* 媒体类型；ROM 为 NULL */
+    gint64   size;
+    gchar   *sha1;          /* 整文件 SHA1 */
+    gchar   *canon_sha1;    /* ROM 去头 SHA1，可 NULL */
+    GBytes  *dir_path_raw;  /* 非 UTF-8 路径定位用，可 NULL */
+    GBytes  *filename_raw;
+    gboolean missing;       /* 磁盘上不存在；由 dedup 层填写 */
+} RhDupMember;
+
+typedef struct {
+    gchar     *kind;        /* "rom" 或 "media" */
+    gchar     *key;         /* 判定键（sha1/canon_sha1） */
+    gint64     size;
+    GPtrArray *members;     /* RhDupMember* */
+} RhDupGroup;
 
 /* 默认值按 DDL：rom_format=raw、rom_status=unknown、patch_type=""、布尔为 FALSE */
 RhGame *rh_game_new(void);
@@ -100,6 +126,12 @@ void       rh_rom_file_free_func(gpointer data);
 RhMediaFile *rh_media_file_new(void);
 void         rh_media_file_free(RhMediaFile *media);
 void         rh_media_file_free_func(gpointer data);
+
+RhDupMember *rh_dup_member_new(void);
+void         rh_dup_member_free(RhDupMember *member);
+void         rh_dup_member_free_func(gpointer data);
+void         rh_dup_group_free(RhDupGroup *group);
+void         rh_dup_group_free_func(gpointer data);
 
 RhDatEntry *rh_dat_entry_new(void);
 void        rh_dat_entry_free(RhDatEntry *entry);

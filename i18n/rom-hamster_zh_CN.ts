@@ -469,6 +469,16 @@
     </message>
     <message>
         <location filename="../../../rhwork/src/gui/window-main.cpp" line="131"/>
+        <source>Find Duplicates…</source>
+        <translation>查找重复…</translation>
+    </message>
+    <message>
+        <location filename="../../../rhwork/src/gui/window-main.cpp" line="624"/>
+        <source>Failed to check duplicates: %1</source>
+        <translation>查重失败：%1</translation>
+    </message>
+    <message>
+        <location filename="../../../rhwork/src/gui/window-main.cpp" line="131"/>
         <source>Quit</source>
         <translation>退出</translation>
     </message>
@@ -798,6 +808,152 @@ Errors:
 Error: %1</source>
         <translation>
 错误：%1</translation>
+    </message>
+</context>
+<context>
+    <name>DedupDialog</name>
+    <message>
+        <source>Find Duplicates</source>
+        <translation>查找重复文件</translation>
+    </message>
+    <message>
+        <source>Platform</source>
+        <translation>平台</translation>
+    </message>
+    <message>
+        <source>All platforms</source>
+        <translation>全部平台</translation>
+    </message>
+    <message>
+        <source>Include media and patches</source>
+        <translation>包含媒体与补丁</translation>
+    </message>
+    <message>
+        <source>Compute missing hashes</source>
+        <translation>补算缺失摘要</translation>
+    </message>
+    <message>
+        <source>Min size</source>
+        <translation>最小大小</translation>
+    </message>
+    <message>
+        <source>Scan</source>
+        <translation>扫描</translation>
+    </message>
+    <message>
+        <source>Type</source>
+        <translation>类型</translation>
+    </message>
+    <message>
+        <source>Hash</source>
+        <translation>摘要</translation>
+    </message>
+    <message>
+        <source>Size</source>
+        <translation>大小</translation>
+    </message>
+    <message>
+        <source>Copies</source>
+        <translation>份数</translation>
+    </message>
+    <message>
+        <source>Wasted</source>
+        <translation>浪费</translation>
+    </message>
+    <message>
+        <source>Paths</source>
+        <translation>路径</translation>
+    </message>
+    <message>
+        <source>Min size must be a non-negative number.</source>
+        <translation>最小大小必须是非负整数。</translation>
+    </message>
+    <message>
+        <source>Computing hashes…</source>
+        <translation>正在补算摘要…</translation>
+    </message>
+    <message>
+        <source>Scanning…</source>
+        <translation>正在扫描…</translation>
+    </message>
+    <message>
+        <source>Hashing %1/%2: %3</source>
+        <translation>正在计算 %1/%2：%3</translation>
+    </message>
+    <message>
+        <source>Failed: %1</source>
+        <translation>失败：%1</translation>
+    </message>
+    <message>
+        <source>No duplicates found.</source>
+        <translation>未发现重复文件。</translation>
+    </message>
+    <message>
+        <source>%1 duplicate clusters, %2 extra copies, %3 bytes wasted.</source>
+        <translation>%1 个重复簇，%2 份多余副本，浪费 %3 字节。</translation>
+    </message>
+    <message>
+        <source>Hashed %1, failed/missing %2.</source>
+        <translation>已补算 %1 个，失败或缺失 %2 个。</translation>
+    </message>
+</context>
+<context>
+    <name>ImportDupsDialog</name>
+    <message>
+        <source>Duplicate Files Found</source>
+        <translation>发现重复文件</translation>
+    </message>
+    <message>
+        <source>These source files look identical to files already in the library. Choose what to do with each one.</source>
+        <translation>这些来源文件与库中已有文件内容相同，请选择如何处置。</translation>
+    </message>
+    <message>
+        <source>Ignore</source>
+        <translation>忽略</translation>
+    </message>
+    <message>
+        <source>Keep both (rename)</source>
+        <translation>共存（改名）</translation>
+    </message>
+    <message>
+        <source>Overwrite existing</source>
+        <translation>覆盖已有</translation>
+    </message>
+    <message>
+        <source>Apply to all</source>
+        <translation>应用到全部</translation>
+    </message>
+    <message>
+        <source>Set all to</source>
+        <translation>全部设为</translation>
+    </message>
+    <message>
+        <source>Source</source>
+        <translation>来源</translation>
+    </message>
+    <message>
+        <source>Existing file</source>
+        <translation>已有文件</translation>
+    </message>
+    <message>
+        <source>Similarity</source>
+        <translation>相似度</translation>
+    </message>
+    <message>
+        <source>Action</source>
+        <translation>处置</translation>
+    </message>
+    <message>
+        <source>Keep both</source>
+        <translation>共存</translation>
+    </message>
+    <message>
+        <source>Overwrite</source>
+        <translation>覆盖</translation>
+    </message>
+    <message>
+        <source>Same name (%1%)</source>
+        <translation>同名（%1%）</translation>
     </message>
 </context>
 <context>

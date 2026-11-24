@@ -33,6 +33,7 @@ msgid ""
 "  stats    Library statistics\n"
 "  export   Export a manifest for a front-end\n"
 "  dat      Import, fetch and inspect DAT indexes\n"
+"  dedup    Find duplicate ROM/media files\n"
 "  help     Show this help\n"
 "  version  Show version information\n"
 "\n"
@@ -48,6 +49,7 @@ msgstr ""
 "  stats    库统计\n"
 "  export   按前端规格导出清单\n"
 "  dat      导入、下载与查看 DAT 索引\n"
+"  dedup    查找重复的 ROM / 媒体文件\n"
 "  help     显示本帮助\n"
 "  version  显示版本\n"
 "\n"
@@ -745,3 +747,70 @@ msgstr "用法: rom-hamster dat <import|list|sources|update> [选项]"
 #, c-format
 msgid "Unknown dat subcommand: %s"
 msgstr "未知 dat 子命令: %s"
+
+#: src/cli/cmd-dedup.c
+msgid "Library root (required to read files)"
+msgstr "库根目录（查重需要读取文件）"
+
+#: src/cli/cmd-dedup.c
+msgid "Only check this platform"
+msgstr "只检查该平台"
+
+#: src/cli/cmd-dedup.c
+msgid "Also check media and patches"
+msgstr "同时检查媒体与补丁"
+
+#: src/cli/cmd-dedup.c
+msgid "Compute missing hashes first"
+msgstr "先补算缺失的摘要"
+
+#: src/cli/cmd-dedup.c
+msgid "Ignore files smaller than this many bytes"
+msgstr "忽略小于该字节数的文件"
+
+#: src/cli/cmd-dedup.c
+msgid "- Find duplicate ROM/media files"
+msgstr "- 查找重复的 ROM / 媒体文件"
+
+#: src/cli/cmd-dedup.c
+msgid ""
+"Usage: rom-hamster dedup --root DIR [--db PATH] [--platform ID] [--media] "
+"[--backfill] [--min-size BYTES]\n"
+msgstr ""
+"用法: rom-hamster dedup --root DIR [--db PATH] [--platform ID] [--media] "
+"[--backfill] [--min-size BYTES]\n"
+
+#: src/cli/cmd-dedup.c
+#, c-format
+msgid "Invalid --min-size value: %s"
+msgstr "无效的 --min-size 值: %s"
+
+#: src/cli/cmd-dedup.c
+#, c-format
+msgid "Duplicate check failed: %s\n"
+msgstr "查重失败: %s\n"
+
+#: src/cli/cmd-dedup.c
+#, c-format
+msgid "Backfilled %u hashes (%u failed/missing).\n"
+msgstr "已补算 %u 个摘要（%u 个失败或缺失）。\n"
+
+#: src/cli/cmd-dedup.c
+#, c-format
+msgid "[%s] %s  size=%s  copies=%u  wasted=%s\n"
+msgstr "[%s] %s  大小=%s  份数=%u  浪费=%s\n"
+
+#: src/cli/cmd-dedup.c
+#, c-format
+msgid "  %s %s   %s\n"
+msgstr "  %s %s   %s\n"
+
+#: src/cli/cmd-dedup.c
+#, c-format
+msgid "  %s   %s\n"
+msgstr "  %s   %s\n"
+
+#: src/cli/cmd-dedup.c
+#, c-format
+msgid "Checked: %u duplicate clusters, %s extra copies, %s bytes wasted.\n"
+msgstr "检查完成: %u 个重复簇，%s 份多余副本，浪费 %s 字节。\n"

@@ -217,6 +217,27 @@ const char *const rh_schema_v5_sql[] = {
 const int rh_schema_v5_sql_count =
     (int)(sizeof(rh_schema_v5_sql) / sizeof(rh_schema_v5_sql[0]));
 
+/*
+ * v6：重复文件识别所需的摘要列与索引。
+ *
+ * - roms.canon_sha1 保存去掉容器头后的 SHA1，同一内容带不带头都能对上；
+ * - media 只有 size，补 crc32/sha1 后媒体与补丁也能查重；
+ * - 按 sha1/size 建索引，导入时「同 size 取候选」不必全表扫描。
+ */
+const char *const rh_schema_v6_sql[] = {
+    "ALTER TABLE roms  ADD COLUMN canon_sha1 TEXT",
+    "ALTER TABLE media ADD COLUMN crc32 TEXT",
+    "ALTER TABLE media ADD COLUMN sha1 TEXT",
+    "CREATE INDEX idx_roms_sha1       ON roms(sha1)",
+    "CREATE INDEX idx_roms_size       ON roms(size)",
+    "CREATE INDEX idx_roms_canon_sha1 ON roms(canon_sha1)",
+    "CREATE INDEX idx_media_sha1      ON media(sha1)",
+    "CREATE INDEX idx_media_size      ON media(size)"
+};
+
+const int rh_schema_v6_sql_count =
+    (int)(sizeof(rh_schema_v6_sql) / sizeof(rh_schema_v6_sql[0]));
+
 const char *const rh_schema_fts_sql[] = {
     "CREATE VIRTUAL TABLE games_fts USING fts5("
     "  name, game_main_name, description,"

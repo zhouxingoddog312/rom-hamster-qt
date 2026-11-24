@@ -78,6 +78,7 @@ add_library(romham SHARED
     src/core/export.c
     src/core/store.c
     src/core/store-schema.c
+    src/core/dedup.c
 )
 
 target_include_directories(romham
@@ -129,6 +130,7 @@ add_executable(rom-hamster
     src/cli/cmd-manage.c
     src/cli/cmd-export.c
     src/cli/cmd-dat.c
+    src/cli/cmd-dedup.c
 )
 target_link_libraries(rom-hamster PRIVATE romham PkgConfig::GLIB2)
 
@@ -192,6 +194,8 @@ if(RH_GUI)
         src/gui/window-detail.cpp
         src/gui/import-job.cpp
         src/gui/dat-dialog.cpp
+        src/gui/dedup-dialog.cpp
+        src/gui/import-dups-dialog.cpp
         src/gui/version-check.cpp
         resources/resources.qrc
         ${RH_TRANSLATIONS_QRC}
@@ -251,6 +255,13 @@ if(BUILD_TESTING)
     add_executable(test-store tests/unit/test-store.c)
     target_link_libraries(test-store PRIVATE romham PkgConfig::GLIB2 PkgConfig::SQLITE3)
     add_test(NAME core/store COMMAND test-store)
+
+    add_executable(test-dedup tests/unit/test-dedup.c)
+    target_link_libraries(test-dedup PRIVATE
+        romham PkgConfig::GLIB2 PkgConfig::SQLITE3)
+    target_compile_definitions(test-dedup PRIVATE
+        RH_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
+    add_test(NAME core/dedup COMMAND test-dedup)
 
     add_executable(test-path tests/unit/test-path.c)
     target_link_libraries(test-path PRIVATE romham PkgConfig::GLIB2)

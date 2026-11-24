@@ -82,7 +82,8 @@ static void test_empty_file(void)
 
     /* 空文件不应触发进度回调 */
     ProgressState state = { 0 };
-    RhHashOptions options = { RH_HASH_ALL, 0, progress_cb, &state };
+    RhHashOptions options = {.flags = RH_HASH_ALL, .chunk_size = 0,
+                             .progress = progress_cb, .user_data = &state};
     g_assert_cmpint(rh_hash_file(path, &options, &result), ==, RH_OK);
     g_assert_cmpuint(state.calls, ==, 0);
 
@@ -150,7 +151,8 @@ static void test_large_streaming(void)
 
     /* 7 字节一块，强制跨很多块 */
     ProgressState state = { 0 };
-    RhHashOptions options = { RH_HASH_ALL, 7, progress_cb, &state };
+    RhHashOptions options = {.flags = RH_HASH_ALL, .chunk_size = 7,
+                             .progress = progress_cb, .user_data = &state};
     RhHashResult chunked;
     g_assert_cmpint(rh_hash_file(path, &options, &chunked), ==, RH_OK);
     assert_vectors(&chunked, expected_crc, expected_md5, expected_sha1);
@@ -207,7 +209,7 @@ static void test_batch_reuses_one_pass(void)
                    "2fd4e1c67a2d28fced849ee1bb76e7391b93eb12");
 
     /* 只请求 SHA1：其余字段必须明确标记为未计算，不能给假值 */
-    RhHashOptions only_sha1 = { RH_HASH_SHA1, 0, NULL, NULL };
+    RhHashOptions only_sha1 = {.flags = RH_HASH_SHA1};
     RhHashResult subset[3];
     g_assert_cmpint(rh_hash_files(paths, 3, &only_sha1, subset), ==, RH_OK);
     for (guint i = 0; i < 3; i++) {
@@ -239,7 +241,8 @@ static void test_cancel(void)
     gchar *path = write_file(dir, "cancel.rom", data, len);
 
     ProgressState state = { 0, 0, 0, TRUE };
-    RhHashOptions options = { RH_HASH_ALL, 4096, progress_cb, &state };
+    RhHashOptions options = {.flags = RH_HASH_ALL, .chunk_size = 4096,
+                             .progress = progress_cb, .user_data = &state};
     RhHashResult result;
     g_assert_cmpint(rh_hash_file(path, &options, &result), ==, RH_ERR_CANCELLED);
     g_assert_cmpint(result.error, ==, RH_ERR_CANCELLED);
@@ -277,7 +280,7 @@ static void test_errors(void)
 
     g_assert_cmpint(rh_hash_file(dir, NULL, &result), ==, RH_ERR_IO);
 
-    RhHashOptions bad_flags = { 0, 0, NULL, NULL };
+    RhHashOptions bad_flags = {.flags = 0};
     g_assert_cmpint(rh_hash_file(path, &bad_flags, &result), ==, RH_ERR_INVALID);
 
     g_assert_cmpint(rh_hash_file(NULL, NULL, &result), ==, RH_ERR_INVALID);

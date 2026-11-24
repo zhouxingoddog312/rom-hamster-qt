@@ -87,6 +87,14 @@ static RhErr apply_migrations(sqlite3 *db, int from)
         version = 5;
     }
 
+    if (version < 6) {
+        for (int i = 0; i < rh_schema_v6_sql_count; i++) {
+            if (exec_sql(db, rh_schema_v6_sql[i]) != RH_OK)
+                return RH_ERR_MIGRATE;
+        }
+        version = 6;
+    }
+
     return set_user_version(db, version);
 }
 
@@ -373,8 +381,9 @@ static RhErr insert_roms(RhStore *store, const char *game_id, const GPtrArray *r
     sqlite3_stmt *stmt = NULL;
     RhErr err = prepare(store->db,
                         "INSERT INTO roms (game_id, filename, disc_no, size,"
-                        " crc32, md5, sha1, sort, filename_raw, dat_id, dat_name)"
-                        " VALUES (?,?,?,?,?,?,?,?,?,?,?);",
+                        " crc32, md5, sha1, sort, filename_raw, dat_id, dat_name,"
+                        " canon_sha1)"
+                        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?);",
                         &stmt);
     if (err != RH_OK)
         return err;
@@ -405,6 +414,7 @@ static RhErr insert_roms(RhStore *store, const char *game_id, const GPtrArray *r
         else
             sqlite3_bind_null(stmt, 10);
         bind_text(stmt, 11, rom->dat_name);
+        bind_text(stmt, 12, rom->canon_sha1);
 
         if (sqlite3_step(stmt) != SQLITE_DONE) {
             g_log(RH_STORE_DOMAIN, G_LOG_LEVEL_WARNING, "写 roms 失败: %s",
@@ -426,8 +436,8 @@ static RhErr insert_media(RhStore *store, const char *game_id, const GPtrArray *
     sqlite3_stmt *stmt = NULL;
     RhErr err = prepare(store->db,
                         "INSERT INTO media (game_id, kind, filename, size, sort,"
-                        " filename_raw)"
-                        " VALUES (?,?,?,?,?,?);",
+                        " filename_raw, crc32, sha1)"
+                        " VALUES (?,?,?,?,?,?,?,?);",
                         &stmt);
     if (err != RH_OK)
         return err;
@@ -450,6 +460,8 @@ static RhErr insert_media(RhStore *store, const char *game_id, const GPtrArray *
             sqlite3_bind_null(stmt, 4);
         sqlite3_bind_int(stmt, 5, item->sort);
         bind_blob(stmt, 6, item->filename_raw);
+        bind_text(stmt, 7, item->crc32);
+        bind_text(stmt, 8, item->sha1);
 
         if (sqlite3_step(stmt) != SQLITE_DONE) {
             g_log(RH_STORE_DOMAIN, G_LOG_LEVEL_WARNING, "写 media 失败: %s",
@@ -800,7 +812,7 @@ GPtrArray *store_roms_for_game(RhStore *store, const char *id, RhErr *out_err)
     sqlite3_stmt *stmt = NULL;
     RhErr err = prepare(store->db,
                         "SELECT filename, disc_no, size, crc32, md5, sha1, sort,"
-                        " filename_raw, dat_id, dat_name"
+                        " filename_raw, dat_id, dat_name, canon_sha1"
                         " FROM roms WHERE game_id = ? ORDER BY sort, filename;",
                         &stmt);
     if (err != RH_OK) {
@@ -825,6 +837,7 @@ GPtrArray *store_roms_for_game(RhStore *store, const char *id, RhErr *out_err)
         rom->dat_id = sqlite3_column_type(stmt, 8) == SQLITE_NULL
                           ? 0 : sqlite3_column_int64(stmt, 8);
         rom->dat_name = column_str(stmt, 9);
+        rom->canon_sha1 = column_str(stmt, 10);
         g_ptr_array_add(roms, rom);
     }
     if (rc != SQLITE_DONE && out_err != NULL)
@@ -879,10 +892,11 @@ GPtrArray *store_media_for_game(RhStore *store, const char *id, const char *kind
     }
 
     const char *sql = kind == NULL
-        ? "SELECT kind, filename, size, sort, filename_raw FROM media WHERE game_id = ?"
+        ? "SELECT kind, filename, size, sort, filename_raw, crc32, sha1"
+          " FROM media WHERE game_id = ?"
           " ORDER BY kind, sort, filename;"
-        : "SELECT kind, filename, size, sort, filename_raw FROM media"
-          " WHERE game_id = ? AND kind = ?"
+        : "SELECT kind, filename, size, sort, filename_raw, crc32, sha1"
+          " FROM media WHERE game_id = ? AND kind = ?"
           " ORDER BY sort, filename;";
 
     sqlite3_stmt *stmt = NULL;
@@ -906,6 +920,8 @@ GPtrArray *store_media_for_game(RhStore *store, const char *id, const char *kind
         item->size = item->has_size ? sqlite3_column_int64(stmt, 2) : 0;
         item->sort = sqlite3_column_int(stmt, 3);
         item->filename_raw = column_bytes(stmt, 4);
+        item->crc32 = column_str(stmt, 5);
+        item->sha1 = column_str(stmt, 6);
         g_ptr_array_add(media, item);
     }
     if (rc != SQLITE_DONE && out_err != NULL)
@@ -1182,6 +1198,367 @@ gint64 store_games_count(RhStore *store, const RhGameFilter *filter, RhErr *out_
     sqlite3_finalize(stmt);
     g_ptr_array_free(params, TRUE);
     return count;
+}
+
+/* ===========================================================================
+ * 重复文件识别
+ * ========================================================================= */
+
+/* 行布局：key,size,game_id,game_name,platform,dir_path,filename,
+ *         filename_raw,dir_path_raw,sha1[,canon_sha1|kind] */
+static RhDupMember *read_dup_member(sqlite3_stmt *stmt, gboolean media)
+{
+    RhDupMember *member = rh_dup_member_new();
+    member->size = sqlite3_column_int64(stmt, 1);
+    member->game_id = column_str(stmt, 2);
+    member->game_name = column_str(stmt, 3);
+    member->platform = column_str(stmt, 4);
+    member->dir_path = column_str(stmt, 5);
+    member->filename = column_str(stmt, 6);
+    member->filename_raw = column_bytes(stmt, 7);
+    member->dir_path_raw = column_bytes(stmt, 8);
+    if (media) {
+        member->kind = column_str(stmt, 9);
+        member->sha1 = column_str(stmt, 10);
+    } else {
+        member->sha1 = column_str(stmt, 9);
+        member->canon_sha1 = column_str(stmt, 10);
+    }
+    return member;
+}
+
+static void flush_dup_group(GPtrArray *groups, RhDupGroup *group)
+{
+    if (group == NULL)
+        return;
+    if (group->members->len > 1)
+        g_ptr_array_add(groups, group);
+    else
+        rh_dup_group_free(group);
+}
+
+static GPtrArray *dup_groups_query(RhStore *store, const char *sql,
+                                   const char *platform, gboolean media,
+                                   RhErr *out_err)
+{
+    GPtrArray *groups = g_ptr_array_new_with_free_func(rh_dup_group_free_func);
+    if (store == NULL) {
+        if (out_err != NULL)
+            *out_err = RH_ERR_INVALID;
+        return groups;
+    }
+
+    sqlite3_stmt *stmt = NULL;
+    RhErr err = prepare(store->db, sql, &stmt);
+    if (err != RH_OK) {
+        if (out_err != NULL)
+            *out_err = err;
+        return groups;
+    }
+    if (platform != NULL)
+        bind_text(stmt, 1, platform);
+
+    gchar *current_key = NULL;
+    gint64 current_size = 0;
+    RhDupGroup *current = NULL;
+
+    int rc;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        const gchar *key = (const gchar *)sqlite3_column_text(stmt, 0);
+        gint64 size = sqlite3_column_int64(stmt, 1);
+        if (key == NULL)
+            continue;
+
+        if (current == NULL || g_strcmp0(current_key, key) != 0) {
+            flush_dup_group(groups, current);
+            g_free(current_key);
+            current_key = g_strdup(key);
+            current_size = size;
+            current = g_new0(RhDupGroup, 1);
+            current->kind = g_strdup(media ? "media" : "rom");
+            current->key = g_strdup(key);
+            current->size = size;
+            current->members = g_ptr_array_new_with_free_func(
+                rh_dup_member_free_func);
+        } else if (size > current_size) {
+            /* 去头后内容相同但文件大小可能差 16/512 字节；显示最大值。 */
+            current_size = size;
+            current->size = size;
+        }
+        g_ptr_array_add(current->members, read_dup_member(stmt, media));
+    }
+
+    flush_dup_group(groups, current);
+    g_free(current_key);
+
+    if (rc != SQLITE_DONE && out_err != NULL)
+        *out_err = RH_ERR_DB;
+    sqlite3_finalize(stmt);
+    return groups;
+}
+
+GPtrArray *store_roms_dup_groups(RhStore *store, const char *platform,
+                                 RhErr *out_err)
+{
+    if (out_err != NULL)
+        *out_err = RH_OK;
+    const char *sql =
+        "SELECT COALESCE(NULLIF(r.canon_sha1,''), r.sha1), r.size,"
+        " g.id, g.name, g.platform, g.dir_path, r.filename,"
+        " r.filename_raw, g.dir_path_raw, r.sha1, r.canon_sha1"
+        " FROM roms r JOIN games g ON g.id = r.game_id"
+        " WHERE r.size IS NOT NULL"
+        "   AND COALESCE(NULLIF(r.canon_sha1,''), NULLIF(r.sha1,'')) IS NOT NULL"
+        "   AND (?1 IS NULL OR g.platform = ?1)"
+        " ORDER BY 1, g.dir_path, r.filename;";
+    if (store == NULL) {
+        if (out_err != NULL)
+            *out_err = RH_ERR_INVALID;
+        return g_ptr_array_new_with_free_func(rh_dup_group_free_func);
+    }
+
+    sqlite3_stmt *stmt = NULL;
+    RhErr err = prepare(store->db, sql, &stmt);
+    GPtrArray *groups = g_ptr_array_new_with_free_func(rh_dup_group_free_func);
+    if (err != RH_OK) {
+        if (out_err != NULL)
+            *out_err = err;
+        return groups;
+    }
+    bind_text(stmt, 1, platform);
+
+    gchar *current_key = NULL;
+    gint64 current_size = 0;
+    RhDupGroup *current = NULL;
+    int rc;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        const gchar *key = (const gchar *)sqlite3_column_text(stmt, 0);
+        gint64 size = sqlite3_column_int64(stmt, 1);
+        if (key == NULL)
+            continue;
+        if (current == NULL || g_strcmp0(current_key, key) != 0) {
+            flush_dup_group(groups, current);
+            g_free(current_key);
+            current_key = g_strdup(key);
+            current_size = size;
+            current = g_new0(RhDupGroup, 1);
+            current->kind = g_strdup("rom");
+            current->key = g_strdup(key);
+            current->size = size;
+            current->members = g_ptr_array_new_with_free_func(
+                rh_dup_member_free_func);
+        } else if (size > current_size) {
+            current_size = size;
+            current->size = size;
+        }
+        g_ptr_array_add(current->members, read_dup_member(stmt, FALSE));
+    }
+    flush_dup_group(groups, current);
+    g_free(current_key);
+    if (rc != SQLITE_DONE && out_err != NULL)
+        *out_err = RH_ERR_DB;
+    sqlite3_finalize(stmt);
+    return groups;
+}
+
+GPtrArray *store_media_dup_groups(RhStore *store, const char *platform,
+                                  RhErr *out_err)
+{
+    if (out_err != NULL)
+        *out_err = RH_OK;
+    const char *sql =
+        "SELECT m.sha1, m.size, g.id, g.name, g.platform, g.dir_path,"
+        " m.filename, m.filename_raw, g.dir_path_raw, m.kind, m.sha1"
+        " FROM media m JOIN games g ON g.id = m.game_id"
+        " WHERE m.size IS NOT NULL AND NULLIF(m.sha1,'') IS NOT NULL"
+        "   AND (?1 IS NULL OR g.platform = ?1)"
+        " ORDER BY 1, g.dir_path, m.filename;";
+    return dup_groups_query(store, sql, platform, TRUE, out_err);
+}
+
+static GPtrArray *missing_hash_query(RhStore *store, const char *sql,
+                                     const char *platform, gboolean media,
+                                     RhErr *out_err)
+{
+    GPtrArray *items = g_ptr_array_new_with_free_func(rh_dup_member_free_func);
+    if (store == NULL) {
+        if (out_err != NULL)
+            *out_err = RH_ERR_INVALID;
+        return items;
+    }
+
+    sqlite3_stmt *stmt = NULL;
+    RhErr err = prepare(store->db, sql, &stmt);
+    if (err != RH_OK) {
+        if (out_err != NULL)
+            *out_err = err;
+        return items;
+    }
+    bind_text(stmt, 1, platform);
+
+    int rc;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        RhDupMember *member = rh_dup_member_new();
+        member->size = sqlite3_column_int64(stmt, 0);
+        member->game_id = column_str(stmt, 1);
+        member->game_name = column_str(stmt, 2);
+        member->platform = column_str(stmt, 3);
+        member->dir_path = column_str(stmt, 4);
+        member->filename = column_str(stmt, 5);
+        member->filename_raw = column_bytes(stmt, 6);
+        member->dir_path_raw = column_bytes(stmt, 7);
+        if (media)
+            member->kind = column_str(stmt, 8);
+        g_ptr_array_add(items, member);
+    }
+    if (rc != SQLITE_DONE && out_err != NULL)
+        *out_err = RH_ERR_DB;
+    sqlite3_finalize(stmt);
+    return items;
+}
+
+GPtrArray *store_roms_missing_hash(RhStore *store, const char *platform,
+                                   RhErr *out_err)
+{
+    if (out_err != NULL)
+        *out_err = RH_OK;
+    const char *sql =
+        "SELECT r.size, g.id, g.name, g.platform, g.dir_path, r.filename,"
+        " r.filename_raw, g.dir_path_raw, r.sha1"
+        " FROM roms r JOIN games g ON g.id = r.game_id"
+        " WHERE (r.sha1 IS NULL OR r.canon_sha1 IS NULL)"
+        "   AND (?1 IS NULL OR g.platform = ?1)"
+        " ORDER BY g.dir_path, r.filename;";
+    return missing_hash_query(store, sql, platform, FALSE, out_err);
+}
+
+GPtrArray *store_media_missing_hash(RhStore *store, const char *platform,
+                                    RhErr *out_err)
+{
+    if (out_err != NULL)
+        *out_err = RH_OK;
+    const char *sql =
+        "SELECT m.size, g.id, g.name, g.platform, g.dir_path, m.filename,"
+        " m.filename_raw, g.dir_path_raw, m.kind"
+        " FROM media m JOIN games g ON g.id = m.game_id"
+        " WHERE m.sha1 IS NULL"
+        "   AND (?1 IS NULL OR g.platform = ?1)"
+        " ORDER BY g.dir_path, m.filename;";
+    return missing_hash_query(store, sql, platform, TRUE, out_err);
+}
+
+GPtrArray *store_roms_by_hash(RhStore *store, const char *platform,
+                              const char *hash, RhErr *out_err)
+{
+    if (out_err != NULL)
+        *out_err = RH_OK;
+    GPtrArray *items = g_ptr_array_new_with_free_func(rh_dup_member_free_func);
+    if (store == NULL || hash == NULL) {
+        if (out_err != NULL)
+            *out_err = RH_ERR_INVALID;
+        return items;
+    }
+
+    const char *sql =
+        "SELECT COALESCE(NULLIF(r.canon_sha1,''), r.sha1), r.size,"
+        " g.id, g.name, g.platform, g.dir_path, r.filename,"
+        " r.filename_raw, g.dir_path_raw, r.sha1, r.canon_sha1"
+        " FROM roms r JOIN games g ON g.id = r.game_id"
+        " WHERE (r.sha1 = ?1 OR r.canon_sha1 = ?1)"
+        "   AND (?2 IS NULL OR g.platform = ?2)"
+        " ORDER BY g.dir_path, r.filename;";
+
+    sqlite3_stmt *stmt = NULL;
+    RhErr err = prepare(store->db, sql, &stmt);
+    if (err != RH_OK) {
+        if (out_err != NULL)
+            *out_err = err;
+        return items;
+    }
+    bind_text(stmt, 1, hash);
+    bind_text(stmt, 2, platform);
+
+    int rc;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW)
+        g_ptr_array_add(items, read_dup_member(stmt, FALSE));
+    if (rc != SQLITE_DONE && out_err != NULL)
+        *out_err = RH_ERR_DB;
+    sqlite3_finalize(stmt);
+    return items;
+}
+
+RhErr store_rom_set_hashes(RhStore *store, const char *game_id,
+                           const char *filename, gint64 size,
+                           const char *crc32, const char *sha1,
+                           const char *canon_sha1)
+{
+    RhErr err = ensure_writable(store);
+    if (err != RH_OK)
+        return err;
+    if (game_id == NULL || filename == NULL)
+        return RH_ERR_INVALID;
+
+    sqlite3_stmt *stmt = NULL;
+    err = prepare(store->db,
+                  "UPDATE roms SET"
+                  " size = CASE WHEN ?1 < 0 THEN size ELSE ?1 END,"
+                  " crc32 = COALESCE(?2, crc32),"
+                  " sha1 = COALESCE(?3, sha1),"
+                  " canon_sha1 = COALESCE(?4, canon_sha1)"
+                  " WHERE game_id = ?5 AND filename = ?6;",
+                  &stmt);
+    if (err != RH_OK)
+        return err;
+
+    sqlite3_bind_int64(stmt, 1, size);
+    bind_text(stmt, 2, crc32);
+    bind_text(stmt, 3, sha1);
+    bind_text(stmt, 4, canon_sha1);
+    bind_text(stmt, 5, game_id);
+    bind_text(stmt, 6, filename);
+
+    err = sqlite3_step(stmt) == SQLITE_DONE ? RH_OK : RH_ERR_DB;
+    if (err == RH_OK && sqlite3_changes(store->db) == 0)
+        err = RH_ERR_NOT_FOUND;
+    sqlite3_finalize(stmt);
+    return err;
+}
+
+RhErr store_media_set_hash(RhStore *store, const char *game_id,
+                           const char *kind, const char *filename, gint64 size,
+                           const char *crc32, const char *sha1)
+{
+    RhErr err = ensure_writable(store);
+    if (err != RH_OK)
+        return err;
+    if (game_id == NULL || kind == NULL || filename == NULL)
+        return RH_ERR_INVALID;
+    if (!rh_media_kind_valid(kind))
+        return RH_ERR_INVALID;
+
+    sqlite3_stmt *stmt = NULL;
+    err = prepare(store->db,
+                  "UPDATE media SET"
+                  " size = CASE WHEN ?1 < 0 THEN size ELSE ?1 END,"
+                  " crc32 = COALESCE(?2, crc32),"
+                  " sha1 = COALESCE(?3, sha1)"
+                  " WHERE game_id = ?4 AND kind = ?5 AND filename = ?6;",
+                  &stmt);
+    if (err != RH_OK)
+        return err;
+
+    sqlite3_bind_int64(stmt, 1, size);
+    bind_text(stmt, 2, crc32);
+    bind_text(stmt, 3, sha1);
+    bind_text(stmt, 4, game_id);
+    bind_text(stmt, 5, kind);
+    bind_text(stmt, 6, filename);
+
+    err = sqlite3_step(stmt) == SQLITE_DONE ? RH_OK : RH_ERR_DB;
+    if (err == RH_OK && sqlite3_changes(store->db) == 0)
+        err = RH_ERR_NOT_FOUND;
+    sqlite3_finalize(stmt);
+    return err;
 }
 
 /* ===========================================================================

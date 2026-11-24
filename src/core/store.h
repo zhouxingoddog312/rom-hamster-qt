@@ -95,6 +95,38 @@ GPtrArray *store_games_list(RhStore *store, const RhGameFilter *filter, RhErr *o
 gint64     store_games_count(RhStore *store, const RhGameFilter *filter, RhErr *out_err);
 
 /* ---------------------------------------------------------------------------
+ * 重复文件识别（§5.1：SQL 留在 store，文件相关的判断留给 dedup）
+ * ------------------------------------------------------------------------- */
+
+/* 返回 GPtrArray<RhDupGroup*>，调用方 g_ptr_array_unref。
+ * platform 为 NULL 表示不限；只返回成员数 > 1 的簇。 */
+GPtrArray *store_roms_dup_groups(RhStore *store, const char *platform,
+                                 RhErr *out_err);
+GPtrArray *store_media_dup_groups(RhStore *store, const char *platform,
+                                  RhErr *out_err);
+
+/* 待补算摘要的条目，返回 GPtrArray<RhDupMember*>。 */
+GPtrArray *store_roms_missing_hash(RhStore *store, const char *platform,
+                                   RhErr *out_err);
+GPtrArray *store_media_missing_hash(RhStore *store, const char *platform,
+                                    RhErr *out_err);
+
+/* 导入查重候选：同平台、sha1 或 canon_sha1 命中的 ROM。
+ * 返回 GPtrArray<RhDupMember*>。 */
+GPtrArray *store_roms_by_hash(RhStore *store, const char *platform,
+                              const char *hash, RhErr *out_err);
+
+/* 回写摘要。crc32/canon_sha1 可为 NULL（沿用旧值）；size < 0 表示不改 size。
+ * 目标行不存在返回 RH_ERR_NOT_FOUND。 */
+RhErr store_rom_set_hashes(RhStore *store, const char *game_id,
+                           const char *filename, gint64 size,
+                           const char *crc32, const char *sha1,
+                           const char *canon_sha1);
+RhErr store_media_set_hash(RhStore *store, const char *game_id,
+                           const char *kind, const char *filename, gint64 size,
+                           const char *crc32, const char *sha1);
+
+/* ---------------------------------------------------------------------------
  * 库统计（只读，SQL 留在 store.c；manage/stats 命令使用）
  * ------------------------------------------------------------------------- */
 typedef struct {

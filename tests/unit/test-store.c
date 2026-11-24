@@ -540,8 +540,8 @@ static void test_migrate_v1_to_v2(void)
     g_free(dir);
 }
 
-/* v3 库打开时必须自动迁移到 v4，旧 DAT 行保留并补默认值。 */
-static void test_migrate_v3_to_v4(void)
+/* v3 库打开时必须自动迁移到当前版本，旧 DAT 行保留并补默认值。 */
+static void test_migrate_v3_to_current(void)
 {
     gchar *dir = g_dir_make_tmp("romham-store-XXXXXX", NULL);
     g_assert_nonnull(dir);
@@ -576,7 +576,7 @@ static void test_migrate_v3_to_v4(void)
     g_assert_cmpint(err, ==, RH_OK);
     g_assert_nonnull(store);
     g_assert_cmpint(store_schema_version(store), ==, RH_SCHEMA_VERSION);
-    g_assert_cmpint(store_schema_version(store), ==, 5);
+    g_assert_cmpint(store_schema_version(store), ==, 6);
     g_assert_false(store_is_read_only(store));
     store_close(store);
 
@@ -601,6 +601,25 @@ static void test_migrate_v3_to_v4(void)
     g_assert_cmpint(sqlite3_column_int(stmt, 1), ==, 16);
     g_assert_cmpstr((const char *)sqlite3_column_text(stmt, 2), ==, "aabbccdd");
     sqlite3_finalize(stmt);
+
+    /* v6：摘要列与索引存在，旧行留 NULL。 */
+    g_assert_cmpint(sqlite3_prepare_v2(db,
+        "SELECT canon_sha1 FROM roms WHERE 0;", -1, &stmt, NULL), ==, SQLITE_OK);
+    sqlite3_finalize(stmt);
+    g_assert_cmpint(sqlite3_prepare_v2(db,
+        "SELECT crc32, sha1 FROM media WHERE 0;", -1, &stmt, NULL), ==, SQLITE_OK);
+    sqlite3_finalize(stmt);
+
+    gboolean found_roms_size_index = FALSE;
+    g_assert_cmpint(sqlite3_prepare_v2(db,
+        "PRAGMA index_list(roms);", -1, &stmt, NULL), ==, SQLITE_OK);
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char *name = (const char *)sqlite3_column_text(stmt, 1);
+        if (g_strcmp0(name, "idx_roms_size") == 0)
+            found_roms_size_index = TRUE;
+    }
+    sqlite3_finalize(stmt);
+    g_assert_true(found_roms_size_index);
 
     gboolean found_size_crc32_index = FALSE;
     g_assert_cmpint(sqlite3_prepare_v2(db,
@@ -635,6 +654,6 @@ int main(int argc, char **argv)
     g_test_add_func("/store/jobs", test_jobs);
     g_test_add_func("/store/raw-bytes-roundtrip", test_raw_bytes_roundtrip);
     g_test_add_func("/store/migrate-v1-to-v2", test_migrate_v1_to_v2);
-    g_test_add_func("/store/migrate-v3-to-v4", test_migrate_v3_to_v4);
+    g_test_add_func("/store/migrate-v3-to-v6", test_migrate_v3_to_current);
     return g_test_run();
 }

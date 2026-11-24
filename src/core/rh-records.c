@@ -72,6 +72,7 @@ void rh_rom_file_free(RhRomFile *rom)
     g_free(rom->crc32);
     g_free(rom->md5);
     g_free(rom->sha1);
+    g_free(rom->canon_sha1);
     g_free(rom->dat_name);
     g_free(rom);
 }
@@ -95,12 +96,61 @@ void rh_media_file_free(RhMediaFile *media)
     g_free(media->filename);
     if (media->filename_raw != NULL)
         g_bytes_unref(media->filename_raw);
+    g_free(media->crc32);
+    g_free(media->sha1);
     g_free(media);
 }
 
 void rh_media_file_free_func(gpointer data)
 {
     rh_media_file_free(data);
+}
+
+RhDupMember *rh_dup_member_new(void)
+{
+    return g_new0(RhDupMember, 1);
+}
+
+void rh_dup_member_free(RhDupMember *member)
+{
+    if (member == NULL)
+        return;
+
+    g_free(member->game_id);
+    g_free(member->game_name);
+    g_free(member->platform);
+    g_free(member->dir_path);
+    g_free(member->filename);
+    g_free(member->kind);
+    g_free(member->sha1);
+    g_free(member->canon_sha1);
+    if (member->dir_path_raw != NULL)
+        g_bytes_unref(member->dir_path_raw);
+    if (member->filename_raw != NULL)
+        g_bytes_unref(member->filename_raw);
+    g_free(member);
+}
+
+void rh_dup_member_free_func(gpointer data)
+{
+    rh_dup_member_free(data);
+}
+
+void rh_dup_group_free(RhDupGroup *group)
+{
+    if (group == NULL)
+        return;
+
+    g_free(group->kind);
+    g_free(group->key);
+    if (group->members != NULL)
+        g_ptr_array_unref(group->members);
+    g_free(group);
+}
+
+void rh_dup_group_free_func(gpointer data)
+{
+    rh_dup_group_free(data);
 }
 
 RhDatEntry *rh_dat_entry_new(void)

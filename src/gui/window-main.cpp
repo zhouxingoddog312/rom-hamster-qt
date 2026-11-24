@@ -35,6 +35,8 @@
 #include <QApplication>
 
 #include "dat-dialog.h"
+#include "dedup-dialog.h"
+#include "import-dups-dialog.h"
 #include "import-job.h"
 #include "model-games.h"
 #include "rh-version.h"
@@ -128,6 +130,12 @@ void MainWindow::buildActions()
         dialog.exec();
     });
 
+    QAction *findDuplicates = new QAction(tr("Find Duplicates…"), this);
+    connect(findDuplicates, &QAction::triggered, this, [this]() {
+        DedupDialog dialog(m_dbPath, m_root, this);
+        dialog.exec();
+    });
+
     QAction *quit = new QAction(tr("Quit"), this);
     quit->setShortcut(QKeySequence(QStringLiteral("Ctrl+Q")));
     connect(quit, &QAction::triggered, this, &QWidget::close);
@@ -153,6 +161,7 @@ void MainWindow::buildActions()
     fileMenu->addAction(m_refreshAction);
     fileMenu->addAction(openDir);
     fileMenu->addAction(datSources);
+    fileMenu->addAction(findDuplicates);
     fileMenu->addSeparator();
     fileMenu->addAction(quit);
 
@@ -604,6 +613,28 @@ void MainWindow::startImport(const QStringList &directories)
         }
         if (patchTargets != nullptr)
             g_ptr_array_unref(patchTargets);
+
+        /* 平台已确定后再查重；只有用户确认处置后才进入执行阶段。 */
+        int duplicateCount = 0;
+        for (RhImportPlan *plan : plans) {
+            RhErr dupErr = RH_OK;
+            rh_import_plan_detect_duplicates(plan, m_store, rootUtf8.constData(),
+                                             m_rules, &dupErr);
+            if (dupErr != RH_OK) {
+                errors.append(tr("Failed to check duplicates: %1")
+                                  .arg(QString::fromUtf8(rh_err_str(dupErr))));
+            }
+            duplicateCount += countImportDuplicates(plan);
+        }
+        if (duplicateCount > 0) {
+            ImportDupsDialog duplicates(plans, this);
+            if (duplicates.exec() != QDialog::Accepted) {
+                rh_import_plans_free(plans);
+                m_importing = false;
+                return;
+            }
+            duplicates.applyDecisions();
+        }
 
         /* 未指定平台或归属的条目执行时跳过，不计入确认数量。 */
         const int importable = entries - ambiguousEntries

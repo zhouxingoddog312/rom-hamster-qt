@@ -35,8 +35,9 @@ typedef struct {
 } RhHashResult;
 
 /*
- * 每读完一块调用一次。processed 为累计字节，total 为 stat 得到的大小
- * （未知时为 0）。返回 FALSE 取消本次计算；空文件不会调用。
+ * 每读完一块调用一次。processed 为累计字节（含跳过部分之外的实际读取量），
+ * total 为 stat 得到的大小减去 skip_bytes（未知时为 0）。返回 FALSE 取消本次
+ * 计算；空文件不会调用。
  * path 是调用方传入的 UTF-8 路径，便于批量任务定位当前文件。
  */
 typedef gboolean (*RhHashProgressFn)(const char *path, guint64 processed,
@@ -45,6 +46,7 @@ typedef gboolean (*RhHashProgressFn)(const char *path, guint64 processed,
 typedef struct {
     RhHashFlags      flags;       /* 0 视为非法；options 为 NULL 时默认 ALL */
     guint            chunk_size;  /* 0 = 默认 256 KiB */
+    guint64          skip_bytes;  /* 跳过文件头字节数；0 = 整个文件 */
     RhHashProgressFn progress;    /* 可为 NULL */
     gpointer         user_data;
 } RhHashOptions;
@@ -54,6 +56,7 @@ void rh_hash_result_clear(RhHashResult *result);
 
 /*
  * 单文件：一次顺序读盘算出已请求的摘要。
+ * skip_bytes > 0 时从该偏移开始读取；skip_bytes >= 文件大小视为非法。
  * 失败返回对应错误码，out 被清零（error 同步置为该码）。
  */
 RhErr rh_hash_file(const char *path, const RhHashOptions *options,

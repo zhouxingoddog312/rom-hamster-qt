@@ -38,13 +38,22 @@ static RhErr hash_one(const char *path, const RhHashOptions *options,
     GStatBuf st;
     if (g_stat(path, &st) != 0 || !S_ISREG(st.st_mode))
         return fail(out, RH_ERR_IO);
-    guint64 total = (guint64)st.st_size;
+    guint64 file_size = (guint64)st.st_size;
+    guint64 skip = options != NULL ? options->skip_bytes : 0;
+    if (skip > 0 && skip >= file_size)
+        return fail(out, RH_ERR_INVALID);
+    guint64 total = file_size - skip;
 
     /* g_fopen 在 Windows 上把 UTF-8 路径转成宽字符，避免 ANSI fopen 打不开
      * 中文路径；POSIX 上就是普通 fopen。 */
     FILE *fp = g_fopen(path, "rb");
     if (fp == NULL)
         return fail(out, RH_ERR_IO);
+
+    if (skip > 0 && fseek(fp, (long)skip, SEEK_SET) != 0) {
+        fclose(fp);
+        return fail(out, RH_ERR_IO);
+    }
 
     guint chunk = options != NULL && options->chunk_size > 0
         ? options->chunk_size : RH_HASH_DEFAULT_CHUNK;

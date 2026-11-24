@@ -6,7 +6,7 @@
 #ifndef RH_STORE_SCHEMA_H
 #define RH_STORE_SCHEMA_H
 
-#define RH_SCHEMA_VERSION 5
+#define RH_SCHEMA_VERSION 6
 
 /* v1 必装 DDL：9 张表 */
 extern const char *const rh_schema_v1_sql[];
@@ -27,6 +27,10 @@ extern const int rh_schema_v4_sql_count;
 /* v5 迁移：roms.dat_name 保存命中的 DAT 标准 ROM 名，供导入改名与导出切换 */
 extern const char *const rh_schema_v5_sql[];
 extern const int rh_schema_v5_sql_count;
+
+/* v6 迁移：ROM 去头摘要与媒体摘要，用于重复文件识别 */
+extern const char *const rh_schema_v6_sql[];
+extern const int rh_schema_v6_sql_count;
 
 /* v1 可选 DDL：FTS5 虚拟表与同步触发器；建立失败时降级为 LIKE（§3.5） */
 extern const char *const rh_schema_fts_sql[];
