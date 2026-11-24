@@ -41,9 +41,11 @@
 
 ### A. Windows GUI（Windows 11 x64 + MSYS2 MINGW64）
 
-- [ ] 在 MSYS2 MINGW64 shell 里重建：`cmake --preset windows-gui` 后
-      `cmake --build --preset windows-gui`。
-      预期：0 error；生成 `build/windows-gui/rom-hamster-gui.exe`。
+- [ ] 在 MSYS2 MINGW64 shell 里重建：`cmake --preset windows-gui -B C:/rhbuild/windows-gui`
+      后 `cmake --build C:/rhbuild/windows-gui`。
+      预期：0 error；生成 `C:/rhbuild/windows-gui/rom-hamster-gui.exe`。
+      （仓库路径含中文时必须用 ASCII 构建目录：Qt 6.12 的 moc 无法创建非 ASCII
+      绝对输出路径；详见 README「构建」。）
 - [ ] 双击 `build/windows-gui/rom-hamster-gui.exe`。
       预期：主窗口出现，标题含 ROM Hamster；任务栏与标题栏图标是应用图标，
       不是系统默认空白图标；不弹出黑色控制台窗口。
@@ -65,7 +67,7 @@
       点「Scan」，进度结束且缺失计数减少；关闭对话框后主窗口仍可正常操作。
 - [ ] 把准备目录拖进主窗口。
       预期：走同一导入流程；遇重复时同样弹出处置对话框。
-- [ ] `build/windows-gui/rom-hamster.exe dedup --root <准备目录>`。
+- [ ] `C:/rhbuild/windows-gui/rom-hamster.exe dedup --root <准备目录>`。
       预期：列出 1 个重复簇，包含三份同内容 ROM（含带头那份）。
 - [ ] 双击列表记录打开详情页，切换各分页后关闭。
       预期：元数据与图片正常，无崩溃、无明显卡顿。

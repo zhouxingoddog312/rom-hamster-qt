@@ -17,6 +17,22 @@ option(RH_DAT_FETCH  "启用 DAT 自动下载（libcurl）"             ON)
 set(RH_UPDATE_CHECK_URL "" CACHE STRING "GUI 版本检查 JSON 地址（留空则不检查）")
 set(RH_SANITIZE "" CACHE STRING "Sanitizer 列表，如 address,undefined（留空为关闭）")
 
+# Windows 上 Qt 6.12 的 moc 无法在含非 ASCII 字符的绝对输出路径下创建文件
+# （读取非 ASCII 输入路径正常，相对输出也正常）。构建目录一旦含中文，AUTOMOC
+# 会报 "moc: Cannot create ... No such file or directory"。这里提前给出可操作的
+# 错误，而不是等到 moc 阶段。源码目录含中文不受影响。
+if(WIN32 AND RH_GUI)
+    string(REGEX MATCH "[^ -~]" RH_NON_ASCII_BINARY_DIR "${CMAKE_BINARY_DIR}")
+    if(RH_NON_ASCII_BINARY_DIR)
+        message(FATAL_ERROR
+            "Windows GUI 构建目录含非 ASCII 字符，Qt 的 moc 无法在其中创建输出：\n"
+            "  ${CMAKE_BINARY_DIR}\n"
+            "请改用纯 ASCII 构建目录（源码目录可以含中文），例如：\n"
+            "  cmake --preset windows-gui -B C:/rhbuild/windows-gui\n"
+            "  cmake --build C:/rhbuild/windows-gui")
+    endif()
+endif()
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)

@@ -30,6 +30,19 @@ ctest --preset linux-cli
 Windows 侧验证过的路径是 MSYS2「MINGW64」shell + `mingw-w64-x86_64-*` 包（GCC/CMake/Ninja/pkgconf/glib2/sqlite3/libarchive/libxml2/zlib/qt6-base），
 在该 shell 里直接 `cmake --preset windows-cli` 即可；MSVC 2022 + vcpkg 为备选路径，尚未验证。
 
+> **Windows GUI 的构建目录必须在纯 ASCII 路径下**：Qt 6.12 的 `moc` 无法在含非 ASCII
+> 字符的绝对输出路径下创建文件（读取中文源码路径正常）。仓库路径含中文时，请用
+> `-B` 把构建目录指到 ASCII 路径：
+>
+> ```sh
+> cmake --preset windows-gui -B C:/rhbuild/windows-gui
+> cmake --build C:/rhbuild/windows-gui
+> ctest --test-dir C:/rhbuild/windows-gui
+> ```
+>
+> `RH_GUI=ON` 的 Windows 配置会在 CMake 阶段检查构建目录并在含非 ASCII 字符时直接报错，
+> 附带同样的命令提示。
+
 > **构建目录里的 `rom-hamster-gui.exe` 不是自包含的**：它依赖 MSYS2 的 Qt/GLib 运行时，
 > 双击会提示缺少 `libstdc++-6.dll` 等。需要独立运行时请使用打包产物：
 > `powershell -ExecutionPolicy Bypass -File packaging/windows/package-zip.ps1 -Gui`
