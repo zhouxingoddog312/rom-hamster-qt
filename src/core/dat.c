@@ -616,6 +616,311 @@ static const GMarkupParser rh_dat_markup_parser = {
     .text = markup_text
 };
 
+/* ===========================================================================
+ * clrmamepro 文本 DAT（libretro-database 使用的格式）
+ *
+ * 语法：
+ *   clrmamepro ( name "..." version "..." )
+ *   game ( name "..." cloneof "..." rom ( name "x" size 1 crc abcd ) )
+ * 字符串可带引号，允许 \" 与 \\ 转义；属性顺序不固定。
+ * ========================================================================= */
+
+typedef struct {
+    const gchar *start;
+    const gchar *cur;
+    const gchar *end;
+} CpReader;
+
+static void cp_skip_ws(CpReader *r)
+{
+    while (r->cur < r->end && g_ascii_isspace((guchar)*r->cur))
+        r->cur++;
+}
+
+/* 返回下一个 token；括号作为独立 token 返回。EOF 返回 NULL。 */
+static gchar *cp_next(CpReader *r)
+{
+    cp_skip_ws(r);
+    if (r->cur >= r->end)
+        return NULL;
+
+    if (*r->cur == '(' || *r->cur == ')') {
+        gchar *token = g_strdup(*r->cur == '(' ? "(" : ")");
+        r->cur++;
+        return token;
+    }
+
+    if (*r->cur == '"') {
+        r->cur++;
+        GString *s = g_string_new(NULL);
+        while (r->cur < r->end) {
+            gchar c = *r->cur++;
+            if (c == '\\' && r->cur < r->end) {
+                gchar e = *r->cur++;
+                if (e == '"' || e == '\\')
+                    g_string_append_c(s, e);
+                else {
+                    g_string_append_c(s, '\\');
+                    g_string_append_c(s, e);
+                }
+            } else if (c == '"') {
+                break;
+            } else {
+                g_string_append_c(s, c);
+            }
+        }
+        return g_string_free(s, FALSE);
+    }
+
+    const gchar *start = r->cur;
+    while (r->cur < r->end && !g_ascii_isspace((guchar)*r->cur) &&
+           *r->cur != '(' && *r->cur != ')')
+        r->cur++;
+    return g_strndup(start, (gsize)(r->cur - start));
+}
+
+/* 已消费 "("，跳过整个配对的块。 */
+static gboolean cp_skip_block(CpReader *r)
+{
+    gint depth = 1;
+    while (depth > 0) {
+        gchar *token = cp_next(r);
+        if (token == NULL)
+            return FALSE;
+        if (strcmp(token, "(") == 0)
+            depth++;
+        else if (strcmp(token, ")") == 0)
+            depth--;
+        g_free(token);
+    }
+    return TRUE;
+}
+
+/* 读取 "(" ... ")" 内的 key/value 对，供 handle_rom/handle_disk 复用。 */
+static gboolean cp_read_attrs(CpReader *r, const gchar **names,
+                              const gchar **values, guint *out_count)
+{
+    cp_skip_ws(r);
+    if (r->cur >= r->end || *r->cur != '(')
+        return FALSE;
+    r->cur++;
+
+    guint count = 0;
+    gchar *token = NULL;
+    while ((token = cp_next(r)) != NULL) {
+        if (strcmp(token, ")") == 0) {
+            g_free(token);
+            *out_count = count;
+            return TRUE;
+        }
+        gchar *key = g_ascii_strdown(token, -1);
+        g_free(token);
+        gchar *value = cp_next(r);
+        if (value == NULL) {
+            g_free(key);
+            return FALSE;
+        }
+        if (strcmp(value, "(") == 0) {
+            g_free(value);
+            g_free(key);
+            if (!cp_skip_block(r))
+                return FALSE;
+            continue;
+        }
+        if (count < 15) {
+            names[count] = key;
+            values[count] = value;
+            count++;
+        } else {
+            g_free(key);
+            g_free(value);
+        }
+    }
+    return FALSE;
+}
+
+static void cp_free_attrs(const gchar **names, const gchar **values,
+                          guint count)
+{
+    for (guint i = 0; i < count; i++) {
+        g_free((gpointer)names[i]);
+        g_free((gpointer)values[i]);
+    }
+}
+
+static ParseOutcome cp_parse_game(CpReader *r, ParseState *state)
+{
+    cp_skip_ws(r);
+    if (r->cur >= r->end || *r->cur != '(')
+        return PARSE_DONE;
+    r->cur++;
+
+    reset_game(state);
+    state->in_game = TRUE;
+
+    gchar *token = NULL;
+    while ((token = cp_next(r)) != NULL) {
+        if (strcmp(token, ")") == 0) {
+            g_free(token);
+            state->games++;
+            reset_game(state);
+            return PARSE_DONE;
+        }
+
+        if (strcmp(token, "name") == 0) {
+            gchar *value = cp_next(r);
+            g_free(state->game_name);
+            state->game_name = value != NULL ? value : g_strdup("");
+            if (state->game_name[0] == '\0')
+                state->game_malformed = TRUE;
+        } else if (strcmp(token, "cloneof") == 0 ||
+                   strcmp(token, "romof") == 0) {
+            gchar *value = cp_next(r);
+            gchar **slot = strcmp(token, "cloneof") == 0
+                ? &state->cloneof : &state->romof;
+            g_free(*slot);
+            *slot = value != NULL && value[0] != '\0' ? value : NULL;
+            if (*slot == NULL)
+                g_free(value);
+        } else if (strcmp(token, "rom") == 0 ||
+                   strcmp(token, "disk") == 0) {
+            const gchar *names[16] = {0};
+            const gchar *values[16] = {0};
+            guint count = 0;
+            if (cp_read_attrs(r, names, values, &count)) {
+                if (strcmp(token, "rom") == 0)
+                    handle_rom(state, names, values);
+                else
+                    handle_disk(state, names, values);
+                cp_free_attrs(names, values, count);
+            }
+        } else {
+            gchar *value = cp_next(r);
+            if (value != NULL && strcmp(value, "(") == 0) {
+                if (!cp_skip_block(r)) {
+                    g_free(value);
+                    g_free(token);
+                    return PARSE_DONE;
+                }
+            }
+            g_free(value);
+        }
+        g_free(token);
+
+        if (state->store_error != RH_OK)
+            return PARSE_STORE_ERROR;
+    }
+    return PARSE_DONE;
+}
+
+static ParseOutcome cp_parse(CpReader *r, ParseState *state,
+                             const RhDatImportOptions *options,
+                             const gchar *path, guint64 total_bytes)
+{
+    gchar *token = NULL;
+    while ((token = cp_next(r)) != NULL) {
+        if (strcmp(token, "clrmamepro") == 0) {
+            g_free(token);
+            cp_skip_ws(r);
+            if (r->cur >= r->end || *r->cur != '(')
+                continue;
+            r->cur++;
+            gchar *key = NULL;
+            while ((key = cp_next(r)) != NULL) {
+                if (strcmp(key, ")") == 0) {
+                    g_free(key);
+                    break;
+                }
+                gchar *value = cp_next(r);
+                if (value == NULL) {
+                    g_free(key);
+                    break;
+                }
+                if (strcmp(value, "(") == 0) {
+                    cp_skip_block(r);
+                } else if (strcmp(key, "name") == 0) {
+                    g_string_truncate(state->header_name, 0);
+                    g_string_append(state->header_name, value);
+                } else if (strcmp(key, "version") == 0) {
+                    g_string_truncate(state->header_version, 0);
+                    g_string_append(state->header_version, value);
+                }
+                g_free(value);
+                g_free(key);
+            }
+            continue;
+        }
+
+        if (strcmp(token, "game") == 0) {
+            g_free(token);
+            ParseOutcome outcome = cp_parse_game(r, state);
+            if (outcome != PARSE_DONE)
+                return outcome;
+            if (options->progress != NULL && state->games % 20 == 0 &&
+                !options->progress(path, state->parsed_entries,
+                                   (gsize)(r->cur - r->start), total_bytes,
+                                   options->user_data))
+                return PARSE_CANCEL;
+            continue;
+        }
+
+        /* 其他顶层块（resource/emulator 等）整体跳过。 */
+        gchar *next = cp_next(r);
+        if (next != NULL && strcmp(next, "(") == 0)
+            cp_skip_block(r);
+        g_free(next);
+        g_free(token);
+    }
+    return PARSE_DONE;
+}
+
+/* 解码整份文本并交给 clrmamepro 解析器。 */
+static ParseOutcome parse_text_document(const gchar *path, Decoder *dec,
+                                        ParseState *state,
+                                        const RhDatImportOptions *options,
+                                        guint64 total_bytes)
+{
+    gchar *raw = NULL;
+    gsize raw_len = 0;
+    if (!g_file_get_contents(path, &raw, &raw_len, NULL))
+        return PARSE_IO_ERROR;
+    if (state->file_sha1 != NULL)
+        g_checksum_update(state->file_sha1, (const guchar *)raw,
+                          (gssize)raw_len);
+
+    GString *utf8 = g_string_sized_new(raw_len + raw_len / 2 + 16);
+    DecStatus ds = decoder_feed(dec, raw, raw_len, utf8, TRUE);
+    g_free(raw);
+
+    ParseOutcome outcome;
+    if (ds == DEC_RESTART) {
+        outcome = PARSE_RESTART;
+    } else if (ds == DEC_ERROR) {
+        outcome = PARSE_IO_ERROR;
+    } else {
+        CpReader reader = { .start = utf8->str, .cur = utf8->str,
+                            .end = utf8->str + utf8->len };
+        outcome = cp_parse(&reader, state, options, path, total_bytes);
+    }
+    g_string_free(utf8, TRUE);
+    return outcome;
+}
+
+/* 以首个非空白字符区分 XML 与 clrmamepro 文本；调用后文件位置复位。 */
+static gboolean dat_is_text_format(FILE *fp)
+{
+    guchar buf[4096];
+    size_t n = fread(buf, 1, sizeof buf, fp);
+    fseek(fp, 0, SEEK_SET);
+
+    size_t i = 0;
+    if (n >= 3 && buf[0] == 0xEF && buf[1] == 0xBB && buf[2] == 0xBF)
+        i = 3;
+    while (i < n && g_ascii_isspace((gchar)buf[i]))
+        i++;
+    return i < n && buf[i] != '<';
+}
+
 static ParseOutcome parse_document(FILE *fp, Decoder *dec, ParseState *state,
                                    const RhDatImportOptions *options,
                                    const gchar *path, guint64 total_bytes)
@@ -820,6 +1125,8 @@ RhErr rh_dat_import(RhStore *store, const char *path,
     if (fp == NULL)
         return RH_ERR_IO;
 
+    gboolean text_format = dat_is_text_format(fp);
+
     gboolean declared = FALSE;
     gchar *charset = NULL;
     gboolean guess_gb = FALSE;
@@ -872,8 +1179,9 @@ RhErr rh_dat_import(RhStore *store, const char *path,
     parse_state_init(&state, store, options);
     state.dat_id = dat_id;
 
-    ParseOutcome outcome = parse_document(fp, &dec, &state, options, path,
-                                          total_bytes);
+    ParseOutcome outcome = text_format
+        ? parse_text_document(path, &dec, &state, options, total_bytes)
+        : parse_document(fp, &dec, &state, options, path, total_bytes);
 
     /* 无声明且 UTF-8 解码失败：回滚后按 GB18030 重来一次。 */
     if (outcome == PARSE_RESTART) {
@@ -913,7 +1221,9 @@ RhErr rh_dat_import(RhStore *store, const char *path,
 
         parse_state_init(&state, store, options);
         state.dat_id = dat_id;
-        outcome = parse_document(fp, &dec, &state, options, path, total_bytes);
+        outcome = text_format
+            ? parse_text_document(path, &dec, &state, options, total_bytes)
+            : parse_document(fp, &dec, &state, options, path, total_bytes);
     }
 
     stats.encoding_guessed = stats.encoding_guessed || guess_gb;

@@ -454,6 +454,14 @@
     </message>
     <message>
         <location filename="../../../rhwork/src/gui/window-main.cpp" line="112"/>
+        <source>Import Files…</source>
+        <translation>导入文件…</translation>
+    </message>
+    <message>
+        <source>Select Files to Import</source>
+        <translation>选择要导入的文件</translation>
+    </message>
+    <message>
         <source>Refresh List</source>
         <translation>刷新列表</translation>
     </message>
@@ -830,7 +838,7 @@ Error: %1</source>
     </message>
     <message>
         <source>Compute missing hashes</source>
-        <translation>补算缺失摘要</translation>
+        <translation>补算缺失哈希</translation>
     </message>
     <message>
         <source>Min size</source>
@@ -846,7 +854,7 @@ Error: %1</source>
     </message>
     <message>
         <source>Hash</source>
-        <translation>摘要</translation>
+        <translation>哈希</translation>
     </message>
     <message>
         <source>Size</source>
@@ -870,7 +878,7 @@ Error: %1</source>
     </message>
     <message>
         <source>Computing hashes…</source>
-        <translation>正在补算摘要…</translation>
+        <translation>正在补算哈希…</translation>
     </message>
     <message>
         <source>Scanning…</source>
@@ -895,6 +903,60 @@ Error: %1</source>
     <message>
         <source>Hashed %1, failed/missing %2.</source>
         <translation>已补算 %1 个，失败或缺失 %2 个。</translation>
+    </message>
+    <message>
+        <source>ROM</source>
+        <translation>ROM</translation>
+    </message>
+    <message>
+        <source>Group</source>
+        <translation>组</translation>
+    </message>
+    <message>
+        <source>Path</source>
+        <translation>路径</translation>
+    </message>
+    <message>
+        <source>Delete Selected…</source>
+        <translation>删除选中项…</translation>
+    </message>
+    <message>
+        <source>Delete Selected Files</source>
+        <translation>删除选中的文件</translation>
+    </message>
+    <message>
+        <source>The following %1 file(s) will be moved to the Recycle Bin / Trash and removed from the library:</source>
+        <translation>以下 %1 个文件将被移入回收站，并从库中移除：</translation>
+    </message>
+    <message>
+        <source>I understand these files will be removed from the library and disk.</source>
+        <translation>我明白这些文件将从库和磁盘上移除。</translation>
+    </message>
+    <message>
+        <source>Delete permanently instead of moving to Trash (cannot be undone)</source>
+        <translation>永久删除而不是移入回收站（无法恢复）</translation>
+    </message>
+    <message>
+        <source>Delete</source>
+        <translation>删除</translation>
+    </message>
+    <message>
+        <source>Delete Permanently</source>
+        <translation>永久删除</translation>
+    </message>
+    <message>
+        <source>Permanent deletion cannot be undone. Continue?</source>
+        <translation>永久删除无法撤销，确定继续？</translation>
+    </message>
+    <message>
+        <source>Delete Failed</source>
+        <translation>删除失败</translation>
+    </message>
+    <message>
+        <source>%1 file(s) were deleted, %2 failed:
+%3</source>
+        <translation>已删除 %1 个文件，%2 个失败：
+%3</translation>
     </message>
 </context>
 <context>

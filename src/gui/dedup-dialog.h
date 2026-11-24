@@ -1,5 +1,5 @@
 /*
- * dedup-dialog.h —— 重复文件列表（只读）
+ * dedup-dialog.h —— 重复文件列表；支持选中后移入回收站并删除库内记录
  */
 #ifndef RH_GUI_DEDUP_DIALOG_H
 #define RH_GUI_DEDUP_DIALOG_H
@@ -7,6 +7,7 @@
 #include <QDialog>
 #include <QString>
 #include <QThread>
+#include <QVector>
 
 #include <atomic>
 
@@ -60,9 +61,18 @@ public:
     ~DedupDialog() override;
 
 private:
+    struct Row {
+        QString path;       /* 磁盘绝对路径 */
+        QString dirPath;    /* 库内相对目录 */
+        QString filename;
+        QString kind;       /* 空 = ROM */
+        bool    missing = false;
+    };
+
     void reload();
     void showGroups(GPtrArray *groups, const RhDedupStats &stats);
     void showPlatforms();
+    void deleteSelected();
 
     QString m_dbPath;
     QString m_root;
@@ -73,6 +83,8 @@ private:
     QTableWidget *m_table = nullptr;
     QLabel *m_summary = nullptr;
     QPushButton *m_scan = nullptr;
+    QPushButton *m_delete = nullptr;
+    QVector<Row> m_rows;
     DedupThread *m_thread = nullptr;
     bool m_running = false;
 };

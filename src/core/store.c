@@ -679,6 +679,45 @@ RhErr store_game_append_media(RhStore *store, const RhGame *game,
     return err;
 }
 
+RhErr store_game_append_roms(RhStore *store, const char *game_id,
+                             const GPtrArray *roms, const GPtrArray *media)
+{
+    RhErr err = ensure_writable(store);
+    if (err != RH_OK)
+        return err;
+    if (game_id == NULL)
+        return RH_ERR_INVALID;
+
+    gboolean own_tx = !store->in_tx;
+    if (own_tx && (err = store_begin(store)) != RH_OK)
+        return err;
+
+    err = insert_roms(store, game_id, roms);
+    if (err == RH_OK)
+        err = insert_media(store, game_id, media);
+    if (err == RH_OK) {
+        sqlite3_stmt *stmt = NULL;
+        err = prepare(store->db,
+                      "UPDATE games SET updated_at ="
+                      " strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?;",
+                      &stmt);
+        if (err == RH_OK) {
+            bind_text(stmt, 1, game_id);
+            if (sqlite3_step(stmt) != SQLITE_DONE)
+                err = RH_ERR_DB;
+            sqlite3_finalize(stmt);
+        }
+    }
+
+    if (own_tx) {
+        if (err == RH_OK)
+            err = store_commit(store);
+        else
+            store_rollback(store);
+    }
+    return err;
+}
+
 RhErr store_game_delete(RhStore *store, const char *id)
 {
     RhErr err = ensure_writable(store);
@@ -695,6 +734,66 @@ RhErr store_game_delete(RhStore *store, const char *id)
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE ? RH_OK : RH_ERR_DB;
+}
+
+RhErr store_delete_file_row(RhStore *store, const char *dir_path,
+                            const char *filename, const char *kind)
+{
+    RhErr err = ensure_writable(store);
+    if (err != RH_OK)
+        return err;
+    if (dir_path == NULL || filename == NULL)
+        return RH_ERR_INVALID;
+
+    gboolean own_tx = !store->in_tx;
+    if (own_tx && (err = store_begin(store)) != RH_OK)
+        return err;
+
+    sqlite3_stmt *stmt = NULL;
+    if (kind == NULL) {
+        err = prepare(store->db,
+                      "DELETE FROM roms WHERE filename = ? AND game_id IN"
+                      " (SELECT id FROM games WHERE dir_path = ?);", &stmt);
+    } else {
+        err = prepare(store->db,
+                      "DELETE FROM media WHERE filename = ? AND kind = ?"
+                      " AND game_id IN (SELECT id FROM games WHERE dir_path = ?);",
+                      &stmt);
+    }
+    if (err == RH_OK) {
+        bind_text(stmt, 1, filename);
+        if (kind == NULL) {
+            bind_text(stmt, 2, dir_path);
+        } else {
+            bind_text(stmt, 2, kind);
+            bind_text(stmt, 3, dir_path);
+        }
+        if (sqlite3_step(stmt) != SQLITE_DONE)
+            err = RH_ERR_DB;
+        sqlite3_finalize(stmt);
+    }
+
+    if (err == RH_OK) {
+        /* 文件行删光后不留下空游戏。 */
+        err = prepare(store->db,
+                      "DELETE FROM games WHERE dir_path = ?"
+                      " AND id NOT IN (SELECT game_id FROM roms)"
+                      " AND id NOT IN (SELECT game_id FROM media);", &stmt);
+        if (err == RH_OK) {
+            bind_text(stmt, 1, dir_path);
+            if (sqlite3_step(stmt) != SQLITE_DONE)
+                err = RH_ERR_DB;
+            sqlite3_finalize(stmt);
+        }
+    }
+
+    if (own_tx) {
+        if (err == RH_OK)
+            err = store_commit(store);
+        else
+            store_rollback(store);
+    }
+    return err;
 }
 
 /* ===========================================================================
@@ -784,6 +883,44 @@ RhGame *store_game_get(RhStore *store, const char *id, RhErr *out_err)
     }
 
     bind_text(stmt, 1, id);
+    RhGame *game = NULL;
+    int rc = sqlite3_step(stmt);
+    if (rc == SQLITE_ROW) {
+        game = read_game_row(stmt);
+    } else if (rc != SQLITE_DONE) {
+        err = RH_ERR_DB;
+    }
+
+    sqlite3_finalize(stmt);
+    if (out_err != NULL)
+        *out_err = err;
+    return game;
+}
+
+RhGame *store_game_get_by_dir(RhStore *store, const char *dir_path,
+                              RhErr *out_err)
+{
+    if (out_err != NULL)
+        *out_err = RH_OK;
+    if (store == NULL || dir_path == NULL) {
+        if (out_err != NULL)
+            *out_err = RH_ERR_INVALID;
+        return NULL;
+    }
+
+    gchar *sql = g_strdup_printf(
+        "SELECT " GAME_COLUMNS " FROM games WHERE dir_path = ?"
+        " ORDER BY id LIMIT 1;");
+    sqlite3_stmt *stmt = NULL;
+    RhErr err = prepare(store->db, sql, &stmt);
+    g_free(sql);
+    if (err != RH_OK) {
+        if (out_err != NULL)
+            *out_err = err;
+        return NULL;
+    }
+
+    bind_text(stmt, 1, dir_path);
     RhGame *game = NULL;
     int rc = sqlite3_step(stmt);
     if (rc == SQLITE_ROW) {

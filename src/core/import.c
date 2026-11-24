@@ -159,33 +159,46 @@ static gchar *child_native_path(const char *dir, const RhFName *name)
     return full;
 }
 
-/* 扫描一个游戏目录（一层文件 + 一层媒体子目录） */
-static RhImportPlanEntry *scan_game_dir(RhImportPlan *plan,
-                                        const RhPlatformRules *rules,
-                                        const char *root,
-                                        const RhFName *subdir)
+/* 扫描游戏目录：本层文件与媒体子目录归当前条目；其余子目录递归为独立条目，
+ * 这样 "目录/子目录/ROM" 的层级也能被发现，而不是把顶层目录当成空条目。 */
+static void resolve_platform(RhImportPlanEntry *entry,
+                             const RhPlatformRules *rules);
+static void fill_game_dir(RhImportPlanEntry *entry, const char *root);
+static gint cmp_fnames(gconstpointer a, gconstpointer b);
+
+static void scan_game_tree(RhImportPlan *plan, const RhPlatformRules *rules,
+                           const char *root, RhFName *subdir,
+                           const char *entry_name, guint depth)
 {
-    RhImportPlanEntry *entry = entry_new(subdir->display, subdir->raw, subdir->display);
+    RhImportPlanEntry *entry = entry_new(subdir->display, subdir->raw,
+                                         entry_name);
     gchar *dir_path = child_native_path(root, subdir);
     GDir *dir = dir_path != NULL ? g_dir_open(dir_path, 0, NULL) : NULL;
     if (dir == NULL) {
         g_free(dir_path);
         rh_import_entry_free(entry);
-        return NULL;
+        return;
     }
 
+    /* 先收集排序，保证递归顺序稳定；按原始字节排序。 */
+    GPtrArray *children = g_ptr_array_new_with_free_func(
+        (GDestroyNotify)rh_fname_free);
     const gchar *name;
     while ((name = g_dir_read_name(dir)) != NULL) {
         RhFName *child = rh_fname_from_bytes(name, -1);
-        if (child == NULL)
-            continue;
+        if (child != NULL)
+            g_ptr_array_add(children, child);
+    }
+    g_dir_close(dir);
+    g_ptr_array_sort(children, cmp_fnames);
+
+    for (guint c = 0; c < children->len; c++) {
+        RhFName *child = g_ptr_array_index(children, c);
         account_name(plan, child);
 
         gchar *full = child_native_path(dir_path, child);
-        if (full == NULL) {
-            rh_fname_free(child);
+        if (full == NULL)
             continue;
-        }
 
         if (g_file_test(full, G_FILE_TEST_IS_DIR)) {
             const gchar *kind = media_dir_kind(rules, child->display);
@@ -216,27 +229,36 @@ static RhImportPlanEntry *scan_game_dir(RhImportPlan *plan,
                     }
                     g_dir_close(media_dir);
                 }
+            } else if (depth < 8) {
+                gchar *display = g_strconcat(subdir->display, "/",
+                                             child->display, NULL);
+                RhFName joined = {
+                    .display = display,
+                    .raw = rh_fname_join_raw(subdir->raw, child->raw),
+                    .encoding = child->encoding,
+                };
+                scan_game_tree(plan, rules, root, &joined, child->display,
+                               depth + 1);
+                g_free(display);
+                g_bytes_unref(joined.raw);
             }
-            g_free(full);
-            rh_fname_free(child);
-            continue;
-        }
-
-        if (g_file_test(full, G_FILE_TEST_IS_REGULAR)) {
+        } else if (g_file_test(full, G_FILE_TEST_IS_REGULAR)) {
             plan->files_scanned++;
-            consume_file(plan, entry, rules, child->display, child->raw, child->display);
+            consume_file(plan, entry, rules, child->display, child->raw,
+                         child->display);
         }
         g_free(full);
-        rh_fname_free(child);
     }
-    g_dir_close(dir);
+    g_ptr_array_unref(children);
     g_free(dir_path);
 
-    if (entry->roms->len == 0 && entry->patches->len == 0) {
+    if (entry->roms->len > 0 || entry->patches->len > 0) {
+        resolve_platform(entry, rules);
+        fill_game_dir(entry, root);
+        g_ptr_array_add(plan->entries, entry);
+    } else {
         rh_import_entry_free(entry);
-        return NULL;
     }
-    return entry;
 }
 
 /* 平台：目录名优先，其次看 ROM 候选是否唯一 */
@@ -368,6 +390,64 @@ static void add_patch_bundle_entry(RhImportPlan *plan,
     g_ptr_array_add(plan->entries, entry);
 }
 
+/* 按扩展名/压缩包内容把单个文件加入计划。 */
+static void plan_add_file(RhImportPlan *plan, const RhPlatformRules *rules,
+                          const char *source_dir, RhFName *item,
+                          const char *full)
+{
+    plan->files_scanned++;
+    RhClassifyResult *result = rh_classify_file(rules, item->display);
+    if (result->kind == RH_CLASSIFY_MEDIA) {
+        plan->skipped_media++;
+    } else if (result->kind == RH_CLASSIFY_UNKNOWN) {
+        plan->skipped_unknown++;
+    } else if (result->kind == RH_CLASSIFY_ARCHIVE) {
+        RhArchiveList *list = NULL;
+        RhErr list_err = rh_archive_list(full, &list);
+        if (list_err != RH_OK) {
+            /* 列不出索引（损坏/不支持的容器）：按普通文件保留，不丢数据 */
+            add_single_entry(plan, rules, source_dir, item, FALSE, FALSE,
+                             container_format_for(item->display), NULL);
+        } else {
+            GPtrArray *paths = g_ptr_array_new_with_free_func(g_free);
+            for (guint k = 0; k < list->entries->len; k++) {
+                RhArchiveEntry *e = g_ptr_array_index(list->entries, k);
+                if (!e->is_dir)
+                    g_ptr_array_add(paths, g_strdup(e->pathname));
+            }
+            RhArchiveClassifyResult *ac = rh_classify_archive(rules, paths);
+            if (ac->branch == RH_ARCHIVE_PATCHES) {
+                plan->skipped_patch_archives++;
+                gchar *format = container_format_for(item->display);
+                add_patch_bundle_entry(plan, rules, item, list, format);
+                g_free(format);
+            } else if (ac->branch == RH_ARCHIVE_MIXED) {
+                plan->skipped_mixed_archives++;
+                add_single_entry(plan, rules, source_dir, item,
+                                 TRUE, FALSE,
+                                 container_format_for(item->display), NULL);
+            } else if (ac->branch == RH_ARCHIVE_AMBIGUOUS) {
+                plan->skipped_ambiguous_archives++;
+                add_single_entry(plan, rules, source_dir, item,
+                                 TRUE, FALSE,
+                                 container_format_for(item->display), NULL);
+            } else {
+                add_single_entry(plan, rules, source_dir, item, FALSE,
+                                 ac->branch == RH_ARCHIVE_ARCADE,
+                                 container_format_for(item->display),
+                                 ac->platform);
+            }
+            rh_archive_classify_free(ac);
+            g_ptr_array_free(paths, TRUE);
+            rh_archive_list_free(list);
+        }
+    } else {
+        add_single_entry(plan, rules, source_dir, item, result->ambiguous,
+                         FALSE, NULL, NULL);
+    }
+    rh_classify_result_free(result);
+}
+
 RhImportPlan *rh_import_plan_scan(const RhPlatformRules *rules, const char *source_dir,
                                   RhErr *out_err)
 {
@@ -410,70 +490,54 @@ RhImportPlan *rh_import_plan_scan(const RhPlatformRules *rules, const char *sour
             continue;
 
         if (g_file_test(full, G_FILE_TEST_IS_DIR)) {
-            RhImportPlanEntry *entry = scan_game_dir(plan, rules, source_dir, item);
-            if (entry != NULL) {
-                resolve_platform(entry, rules);
-                fill_game_dir(entry, source_dir);
-                g_ptr_array_add(plan->entries, entry);
-            }
+            scan_game_tree(plan, rules, source_dir, item, item->display, 0);
         } else if (g_file_test(full, G_FILE_TEST_IS_REGULAR)) {
-            plan->files_scanned++;
-            RhClassifyResult *result = rh_classify_file(rules, item->display);
-            if (result->kind == RH_CLASSIFY_MEDIA) {
-                plan->skipped_media++;
-            } else if (result->kind == RH_CLASSIFY_UNKNOWN) {
-                plan->skipped_unknown++;
-            } else if (result->kind == RH_CLASSIFY_ARCHIVE) {
-                RhArchiveList *list = NULL;
-                RhErr list_err = rh_archive_list(full, &list);
-                if (list_err != RH_OK) {
-                    /* 列不出索引（损坏/不支持的容器）：按普通文件保留，不丢数据 */
-                    add_single_entry(plan, rules, source_dir, item, FALSE, FALSE,
-                                     container_format_for(item->display), NULL);
-                } else {
-                    GPtrArray *paths = g_ptr_array_new_with_free_func(g_free);
-                    for (guint k = 0; k < list->entries->len; k++) {
-                        RhArchiveEntry *e = g_ptr_array_index(list->entries, k);
-                        if (!e->is_dir)
-                            g_ptr_array_add(paths, g_strdup(e->pathname));
-                    }
-                    RhArchiveClassifyResult *ac = rh_classify_archive(rules, paths);
-                    if (ac->branch == RH_ARCHIVE_PATCHES) {
-                        plan->skipped_patch_archives++;
-                        gchar *format = container_format_for(item->display);
-                        add_patch_bundle_entry(plan, rules, item, list, format);
-                        g_free(format);
-                    } else if (ac->branch == RH_ARCHIVE_MIXED) {
-                        plan->skipped_mixed_archives++;
-                        add_single_entry(plan, rules, source_dir, item,
-                                         TRUE, FALSE,
-                                         container_format_for(item->display), NULL);
-                    } else if (ac->branch == RH_ARCHIVE_AMBIGUOUS) {
-                        plan->skipped_ambiguous_archives++;
-                        add_single_entry(plan, rules, source_dir, item,
-                                         TRUE, FALSE,
-                                         container_format_for(item->display), NULL);
-                    } else
-                        add_single_entry(plan, rules, source_dir, item,
-                                         FALSE,
-                                         ac->branch == RH_ARCHIVE_ARCADE,
-                                         container_format_for(item->display),
-                                         ac->platform);
-                    rh_archive_classify_free(ac);
-                    g_ptr_array_free(paths, TRUE);
-                    rh_archive_list_free(list);
-                }
-            } else {
-                add_single_entry(plan, rules, source_dir, item,
-                                 result->ambiguous, FALSE, NULL, NULL);
-            }
-            rh_classify_result_free(result);
+            plan_add_file(plan, rules, source_dir, item, full);
         }
 
         g_free(full);
     }
 
     g_ptr_array_free(names, TRUE);
+    return plan;
+}
+
+/* 只扫描用户选中的若干文件；source_dir 为这些文件所在的同一目录。 */
+RhImportPlan *rh_import_plan_scan_files(const RhPlatformRules *rules,
+                                        const char *source_dir,
+                                        const char *const *filenames,
+                                        guint count, RhErr *out_err)
+{
+    RhImportPlan *plan = g_new0(RhImportPlan, 1);
+    plan->entries = g_ptr_array_new_with_free_func(
+        (GDestroyNotify)rh_import_entry_free);
+    plan->source_dir = g_strdup(source_dir);
+
+    if (out_err != NULL)
+        *out_err = RH_OK;
+    if (rules == NULL || source_dir == NULL || filenames == NULL || count == 0) {
+        if (out_err != NULL)
+            *out_err = RH_ERR_INVALID;
+        return plan;
+    }
+
+    for (guint i = 0; i < count; i++) {
+        if (filenames[i] == NULL || filenames[i][0] == '\0')
+            continue;
+        RhFName *item = rh_fname_from_utf8(filenames[i]);
+        if (item == NULL)
+            continue;
+        account_name(plan, item);
+
+        gchar *full = g_build_filename(source_dir, item->display, NULL);
+        if (g_file_test(full, G_FILE_TEST_IS_REGULAR)) {
+            plan_add_file(plan, rules, source_dir, item, full);
+        } else {
+            plan->skipped_unknown++;
+        }
+        g_free(full);
+        rh_fname_free(item);
+    }
     return plan;
 }
 
@@ -1357,26 +1421,40 @@ static EntryOutcome execute_entry(RhStore *store, const RhPlatformRules *rules,
         }
     }
 
-    RhGame *game = rh_game_new();
-    game->id = new_game_id(store);
-    if (game->id == NULL) {
+    /* 同目录再次导入：合并到已有游戏，而不是插入同 dir_path 的新行
+     * （games.dir_path 有 UNIQUE 约束，否则整条导入会失败）。 */
+    RhErr lookup_err = RH_OK;
+    RhGame *existing = store_game_get_by_dir(store, entry->game_dir,
+                                             &lookup_err);
+    if (lookup_err != RH_OK) {
         g_free(m3u_name);
-        rh_game_free(game);
-        *out_message = g_strdup("无法生成游戏 ID");
+        *out_message = g_strdup(rh_err_str(lookup_err));
         return ENTRY_FAILED;
     }
-    game->platform = g_strdup(entry->platform);
-    game->name = g_strdup(entry->name);
-    game->game_main_name = g_strdup(entry->name);
-    game->dir_path = g_strdup(entry->game_dir);
-    game->is_multi_disc = multi_disc;
-    game->is_arcade = entry->is_arcade;
-    if (entry->rom_format != NULL) {
-        g_free(game->rom_format);
-        game->rom_format = g_strdup(entry->rom_format);
+
+    RhGame *game = existing;
+    if (game == NULL) {
+        game = rh_game_new();
+        game->id = new_game_id(store);
+        if (game->id == NULL) {
+            g_free(m3u_name);
+            rh_game_free(game);
+            *out_message = g_strdup("无法生成游戏 ID");
+            return ENTRY_FAILED;
+        }
+        game->platform = g_strdup(entry->platform);
+        game->name = g_strdup(entry->name);
+        game->game_main_name = g_strdup(entry->name);
+        game->dir_path = g_strdup(entry->game_dir);
+        game->is_multi_disc = multi_disc;
+        game->is_arcade = entry->is_arcade;
+        if (entry->rom_format != NULL) {
+            g_free(game->rom_format);
+            game->rom_format = g_strdup(entry->rom_format);
+        }
+        g_free(game->patch_type);
+        game->patch_type = patch_type_for(entry->patches);
     }
-    g_free(game->patch_type);
-    game->patch_type = patch_type_for(entry->patches);
 
     GPtrArray *roms = g_ptr_array_new_with_free_func(
         (GDestroyNotify)rh_rom_file_free);
@@ -1653,8 +1731,12 @@ static EntryOutcome execute_entry(RhStore *store, const RhPlatformRules *rules,
                                        item->size, item->crc32, item->sha1,
                                        item->canon_sha1);
         }
-        if (err == RH_OK && roms->len > 0)
-            err = store_game_insert(store, game, roms, media, NULL);
+        if (err == RH_OK && roms->len > 0) {
+            if (existing != NULL)
+                err = store_game_append_roms(store, game->id, roms, media);
+            else
+                err = store_game_insert(store, game, roms, media, NULL);
+        }
         if (err == RH_OK && options->job_id > 0) {
             const char *job_target = game->id;
             if (roms->len == 0 && overwrites->len > 0)

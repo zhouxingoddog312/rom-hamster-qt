@@ -59,12 +59,14 @@ static void test_plan_scan(void)
     g_free(snes);
 
     touch(root, "collection.zip");
+    /* 多层目录：ROM 在 子目录/游戏名/ 下，必须递归发现。 */
+    touch(root, "gb/Nested Game/Nested Game.gb");
 
     RhErr err = RH_ERR_INVALID;
     RhImportPlan *plan = rh_import_plan_scan(rules, root, &err);
     g_assert_cmpint(err, ==, RH_OK);
-    g_assert_cmpuint(plan->entries->len, ==, 3);
-    g_assert_cmpuint(plan->files_scanned, ==, 6);
+    g_assert_cmpuint(plan->entries->len, ==, 4);
+    g_assert_cmpuint(plan->files_scanned, ==, 7);
     g_assert_cmpuint(plan->skipped_unknown, ==, 1);
     g_assert_cmpuint(plan->skipped_media, ==, 0);
 
@@ -88,6 +90,13 @@ static void test_plan_scan(void)
     g_assert_cmpstr(snes_entry->platform, ==, "snes");
     g_assert_cmpuint(snes_entry->roms->len, ==, 1);
 
+    RhImportPlanEntry *nested = find(plan, "Nested Game");
+    g_assert_nonnull(nested);
+    g_assert_cmpstr(nested->platform, ==, "gb");
+    g_assert_cmpstr(nested->game_dir, ==, "gb/Nested Game");
+    g_assert_cmpuint(nested->roms->len, ==, 1);
+    g_assert_cmpstr(g_ptr_array_index(nested->roms, 0), ==, "Nested Game.gb");
+
     RhImportPlanEntry *zip_entry = find(plan, "collection.zip");
     g_assert_nonnull(zip_entry);
     g_assert_null(zip_entry->platform);
@@ -105,6 +114,7 @@ static void test_plan_scan(void)
         g_build_filename(root, "snes", "Super Metroid.sfc", NULL),
         g_build_filename(root, "snes", "notes.xyz", NULL),
         g_build_filename(root, "collection.zip", NULL),
+        g_build_filename(root, "gb", "Nested Game", "Nested Game.gb", NULL),
     };
     for (gsize i = 0; i < G_N_ELEMENTS(paths); i++) {
         g_remove(paths[i]);
@@ -112,6 +122,7 @@ static void test_plan_scan(void)
     }
     gchar *dirs[] = {
         g_build_filename(root, "gb", "covers", NULL),
+        g_build_filename(root, "gb", "Nested Game", NULL),
         g_build_filename(root, "gb", NULL),
         g_build_filename(root, "snes", NULL),
     };
@@ -120,6 +131,38 @@ static void test_plan_scan(void)
         g_free(dirs[i]);
     }
     g_rmdir(root);
+    g_free(root);
+}
+
+static void test_plan_scan_files(void)
+{
+    RhPlatformRules *rules = load();
+    gchar *root = g_dir_make_tmp("romham-files-XXXXXX", NULL);
+    touch(root, "a.gb");
+    touch(root, "b.gb");
+
+    const char *names[] = {"b.gb"};
+    RhErr err = RH_ERR_INVALID;
+    RhImportPlan *plan = rh_import_plan_scan_files(rules, root, names, 1, &err);
+    g_assert_cmpint(err, ==, RH_OK);
+    g_assert_cmpuint(plan->entries->len, ==, 1);
+    g_assert_cmpuint(plan->files_scanned, ==, 1);
+
+    RhImportPlanEntry *entry = g_ptr_array_index(plan->entries, 0);
+    g_assert_cmpstr(entry->name, ==, "b.gb");
+    g_assert_cmpstr(entry->platform, ==, "gb");
+    g_assert_cmpuint(entry->roms->len, ==, 1);
+    g_assert_cmpstr(g_ptr_array_index(entry->roms, 0), ==, "b.gb");
+
+    rh_import_plan_free(plan);
+    rh_platform_rules_free(rules);
+    gchar *a = g_build_filename(root, "a.gb", NULL);
+    gchar *b = g_build_filename(root, "b.gb", NULL);
+    g_remove(a);
+    g_remove(b);
+    g_rmdir(root);
+    g_free(a);
+    g_free(b);
     g_free(root);
 }
 
@@ -641,15 +684,8 @@ static void test_execute_rollback(void)
 
     RhStore *store = open_store_at(lib);
 
-    /* 先占住 gb/gb 这个 dir_path，让插入必然失败。 */
-    RhGame *existing = rh_game_new();
-    existing->id = g_strdup("aaaa0001");
-    existing->platform = g_strdup("gb");
-    existing->name = g_strdup("Existing");
-    existing->game_main_name = g_strdup("Existing");
-    existing->dir_path = g_strdup("gb/gb");
-    g_assert_cmpint(store_game_insert(store, existing, NULL, NULL, NULL), ==, RH_OK);
-    rh_game_free(existing);
+    /* 用普通文件占住 gb 目录名，让复制阶段必然失败；用于验证插入回滚。 */
+    write_file(lib, "gb", "blocker");
 
     RhErr err = RH_OK;
     RhImportPlan *plan = rh_import_plan_scan(rules, src, &err);
@@ -659,8 +695,6 @@ static void test_execute_rollback(void)
     options.root = lib;
     options.source_dir = src;
     RhImportExecStats stats;
-    /* 这条用例故意触发 UNIQUE 约束；store 会按约定记 warning，
-     * 测试期间关掉 fatal-warning，避免把预期失败当崩溃。 */
     GLogLevelFlags fatal = g_log_set_always_fatal(0);
     RhErr exec_err = rh_import_execute(store, rules, plan, &options, &stats);
     g_log_set_always_fatal(fatal);
@@ -668,17 +702,21 @@ static void test_execute_rollback(void)
     g_assert_cmpuint(stats.failed, ==, 1);
     g_assert_cmpuint(stats.imported, ==, 0);
 
-    /* 复制出来的文件与新建目录都已回滚 */
+    /* 游戏行已回滚；占位文件保持原样。 */
     gchar *target = g_build_filename(lib, "gb", "gb", "Tetris (World).gb", NULL);
     g_assert_false(g_file_test(target, G_FILE_TEST_EXISTS));
     g_free(target);
-    gchar *gb_dir = g_build_filename(lib, "gb", NULL);
-    g_assert_false(g_file_test(gb_dir, G_FILE_TEST_EXISTS));
-    g_free(gb_dir);
+    gchar *gb_path = g_build_filename(lib, "gb", NULL);
+    g_assert_true(g_file_test(gb_path, G_FILE_TEST_IS_REGULAR));
+    gchar *blocked = NULL;
+    g_assert_true(g_file_get_contents(gb_path, &blocked, NULL, NULL));
+    g_assert_cmpstr(blocked, ==, "blocker");
+    g_free(blocked);
+    g_free(gb_path);
 
     RhGameFilter filter = {0};
     GPtrArray *games = store_games_list(store, &filter, &err);
-    g_assert_cmpuint(games->len, ==, 1);
+    g_assert_cmpuint(games->len, ==, 0);
     g_ptr_array_unref(games);
 
     rh_import_plan_free(plan);
@@ -1204,6 +1242,7 @@ int main(int argc, char **argv)
     rh_test_init(&argc, &argv);
     g_test_add_func("/import/plan-scan", test_plan_scan);
     g_test_add_func("/import/plan-errors", test_plan_errors);
+    g_test_add_func("/import/plan-scan-files", test_plan_scan_files);
 #ifndef _WIN32
     g_test_add_func("/import/gbk-filename", test_gbk_filename);
     g_test_add_func("/import/invalid-filename", test_invalid_filename);

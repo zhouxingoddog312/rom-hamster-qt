@@ -8,6 +8,7 @@
 #ifndef RH_GUI_IMPORT_JOB_H
 #define RH_GUI_IMPORT_JOB_H
 
+#include <QHash>
 #include <QString>
 #include <QStringList>
 #include <QThread>
@@ -29,7 +30,9 @@ class ImportScanThread : public QThread {
     Q_OBJECT
 public:
     ImportScanThread(const RhPlatformRules *rules, const QString &root,
-                     const QStringList &sources, QObject *parent = nullptr);
+                     const QStringList &sources,
+                     const QHash<QString, QStringList> &files = {},
+                     QObject *parent = nullptr);
 
     /* run() 结束后有效；plan 的所有权交给调用方 */
     QVector<ImportSourcePlan> results;
@@ -44,6 +47,7 @@ private:
     const RhPlatformRules *m_rules;
     QString m_root;
     QStringList m_sources;
+    QHash<QString, QStringList> m_files;  /* 非空时只扫描列出的文件 */
 };
 
 class ImportExecThread : public QThread {

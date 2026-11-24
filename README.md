@@ -30,6 +30,12 @@ ctest --preset linux-cli
 Windows 侧验证过的路径是 MSYS2「MINGW64」shell + `mingw-w64-x86_64-*` 包（GCC/CMake/Ninja/pkgconf/glib2/sqlite3/libarchive/libxml2/zlib/qt6-base），
 在该 shell 里直接 `cmake --preset windows-cli` 即可；MSVC 2022 + vcpkg 为备选路径，尚未验证。
 
+> **构建目录里的 `rom-hamster-gui.exe` 不是自包含的**：它依赖 MSYS2 的 Qt/GLib 运行时，
+> 双击会提示缺少 `libstdc++-6.dll` 等。需要独立运行时请使用打包产物：
+> `powershell -ExecutionPolicy Bypass -File packaging/windows/package-zip.ps1 -Gui`
+> 生成的 zip，或 `make-setup.ps1` 生成的 `*-win64-setup.exe`（两者都会用 `objdump`
+> 递归收集依赖 DLL）。构建树不复制 DLL，是避免运行库版本漂移和构建目录膨胀。
+
 CI 入口：`ci/build-matrix.sh`（Linux 跑本机两组并补 sanitizer，MSYS2 跑本机两组），四组已在本机跑通。
 GitHub Actions 跑同一套矩阵（`.github/workflows/ci.yml`）：Ubuntu 24.04 的 CLI/GUI、
 ASan+UBSan、Ubuntu 22.04（glibc 2.35 基线）与 MSYS2 MINGW64 的 CLI/GUI，并校验

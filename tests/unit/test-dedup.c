@@ -338,7 +338,8 @@ static void test_check_file(void)
     g_free(other);
 }
 
-static RhImportPlan *make_single_plan(const char *source_dir, const char *name)
+static RhImportPlan *make_named_plan(const char *source_dir, const char *name,
+                                     const char *filename)
 {
     RhImportPlan *plan = g_new0(RhImportPlan, 1);
     plan->source_dir = g_strdup(source_dir);
@@ -362,10 +363,76 @@ static RhImportPlan *make_single_plan(const char *source_dir, const char *name)
         (GDestroyNotify)g_bytes_unref);
     entry->dups = g_ptr_array_new_with_free_func(test_dup_free);
 
-    g_ptr_array_add(entry->roms, g_strdup("c.nes"));
-    g_ptr_array_add(entry->roms_raw, g_bytes_new("c.nes", 5));
+    g_ptr_array_add(entry->roms, g_strdup(filename));
+    g_ptr_array_add(entry->roms_raw, g_bytes_new(filename, strlen(filename)));
     g_ptr_array_add(plan->entries, entry);
     return plan;
+}
+
+static RhImportPlan *make_single_plan(const char *source_dir, const char *name)
+{
+    return make_named_plan(source_dir, name, "c.nes");
+}
+
+/* 同名的同内容 ROM 选择共存时，必须写成 "<stem> (2)<ext>"，不能被跳过。 */
+static void test_import_coexist_same_name(void)
+{
+    gchar *root = temp_dir("romham-dedup-XXXXXX");
+    gchar *srcroot = temp_dir("romham-dedup-XXXXXX");
+    gchar *dbdir = temp_dir("romham-dedup-XXXXXX");
+    gchar *db = g_build_filename(dbdir, "romhamster.db", NULL);
+
+    gchar *existing = g_build_filename(root, "gb/GameA/game.nes", NULL);
+    gchar *src = g_build_filename(srcroot, "game.nes", NULL);
+    write_pattern(existing, NULL, 0, 16384);
+    write_pattern(src, NULL, 0, 16384);
+
+    RhHashResult he;
+    hash_path(existing, &he);
+
+    RhErr err = RH_ERR_INVALID;
+    RhStore *store = store_open(db, &err);
+    g_assert_cmpint(err, ==, RH_OK);
+    add_rom_game(store, "aaaa0001", "gb/GameA", "GameA", "game.nes", 16384,
+                 &he, NULL);
+
+    RhImportPlan *plan = make_named_plan(srcroot, "GameA", "game.nes");
+    RhImportPlanEntry *entry = g_ptr_array_index(plan->entries, 0);
+    g_assert_cmpint(rh_import_plan_detect_duplicates(plan, store, root, NULL,
+                                                     &err), ==, RH_OK);
+    g_assert_cmpuint(entry->dups->len, ==, 1);
+    RhImportDup *dup = g_ptr_array_index(entry->dups, 0);
+    g_assert_true(dup->same_name);
+    g_assert_true(rh_import_dup_set_action(entry, 0, RH_DUP_COEXIST));
+
+    RhImportExecOptions options = {
+        .root = root,
+        .source_dir = srcroot,
+        .name_mode = RH_IMPORT_NAMES_ORIGINAL,
+    };
+    RhImportExecStats stats;
+    RhPlatformRules *rules = load_rules();
+    g_assert_cmpint(rh_import_execute(store, rules, plan, &options, &stats),
+                    ==, RH_OK);
+    rh_platform_rules_free(rules);
+    g_assert_cmpuint(stats.dup_coexisted, ==, 1);
+
+    gchar *renamed = g_build_filename(root, "gb/GameA/game (2).nes", NULL);
+    g_assert_true(g_file_test(renamed, G_FILE_TEST_EXISTS));
+
+    g_free(renamed);
+    rh_import_plan_free(plan);
+    store_close(store);
+    remove_db_files(db);
+    g_rmdir(dbdir);
+    g_rmdir(root);
+    g_rmdir(srcroot);
+    g_free(db);
+    g_free(dbdir);
+    g_free(root);
+    g_free(srcroot);
+    g_free(existing);
+    g_free(src);
 }
 
 static void test_import_coexist(void)
@@ -506,6 +573,8 @@ int main(int argc, char **argv)
     g_test_add_func("/dedup/report-and-backfill", test_report_and_backfill);
     g_test_add_func("/dedup/check-file", test_check_file);
     g_test_add_func("/dedup/import-coexist", test_import_coexist);
+    g_test_add_func("/dedup/import-coexist-same-name",
+                    test_import_coexist_same_name);
     g_test_add_func("/dedup/import-overwrite", test_import_overwrite);
     return g_test_run();
 }

@@ -81,6 +81,11 @@ void rh_import_media_free(RhImportMediaFile *media);
 void rh_import_entry_free(RhImportPlanEntry *entry);
 RhImportPlan *rh_import_plan_scan(const RhPlatformRules *rules, const char *source_dir,
                                   RhErr *out_err);
+/* 只扫描选中的文件（同一目录），用于“导入文件…”。 */
+RhImportPlan *rh_import_plan_scan_files(const RhPlatformRules *rules,
+                                        const char *source_dir,
+                                        const char *const *filenames,
+                                        guint count, RhErr *out_err);
 /*
  * 预扫描不知道库根目录，target_exists 只能按来源目录探测。
  * 前端在拿到计划后用库根目录调用一次，重算每个条目的 target_exists。

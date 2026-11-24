@@ -762,10 +762,83 @@ static void test_reimport_unchanged(void)
     g_free(dir);
 }
 
+/* ---------------------------------------------------------------------------
+ * clrmamepro 文本 DAT（libretro-database 下载源使用的格式）
+ * ------------------------------------------------------------------------- */
+
+static const char *CLRMAMEPRO_DAT =
+    "clrmamepro (\n"
+    "    name \"Libretro Test\"\n"
+    "    version \"2026-11-24\"\n"
+    ")\n"
+    "game (\n"
+    "    name \"Sample Game (USA)\"\n"
+    "    rom ( name \"Sample Game (USA).nes\" size 16384 crc aabbccdd )\n"
+    "    rom ( name \"Extra \\\"Quoted\\\".bin\" size 128 crc deadbeef )\n"
+    ")\n"
+    "game (\n"
+    "    name \"Clone Game\"\n"
+    "    cloneof \"Sample Game (USA)\"\n"
+    "    rom ( name \"Clone.nes\" size 16384 crc aabbccdd )\n"
+    ")\n";
+
+static void test_clrmamepro_text(void)
+{
+    gchar *dir = g_dir_make_tmp("romham-dat-XXXXXX", NULL);
+    g_assert_nonnull(dir);
+    gchar *dat_path = write_text(dir, "text.dat", CLRMAMEPRO_DAT);
+    RhStore *store = open_store_in(dir, NULL);
+
+    RhDatImportOptions options = {0};
+    options.platform = "gb";
+
+    RhDatImportStats stats;
+    RhErr err = rh_dat_import(store, dat_path, &options, &stats);
+    g_assert_cmpint(err, ==, RH_OK);
+    g_assert_cmpint(stats.games, ==, 2);
+    g_assert_cmpint(stats.entry_count, ==, 3);
+    g_assert_cmpint(stats.skipped, ==, 0);
+    g_assert_cmpint(stats.bad_fields, ==, 0);
+    g_assert_false(stats.xml_error);
+    g_assert_cmpstr(stats.encoding, ==, "utf-8");
+
+    GPtrArray *matches = NULL;
+    g_assert_cmpint(store_dat_find_by_hash(store, "crc32", "deadbeef", 128, "gb",
+                                           &matches), ==, RH_OK);
+    g_assert_cmpuint(matches->len, ==, 1);
+    RhDatMatch *match = g_ptr_array_index(matches, 0);
+    g_assert_cmpstr(match->entry->game_name, ==, "Sample Game (USA)");
+    g_assert_cmpstr(match->entry->rom_name, ==, "Extra \"Quoted\".bin");
+    g_assert_cmpstr(match->dat_name, ==, "Libretro Test");
+    g_assert_cmpstr(match->dat_version, ==, "2026-11-24");
+    g_ptr_array_unref(matches);
+
+    matches = NULL;
+    g_assert_cmpint(store_dat_find_by_hash(store, "crc32", "aabbccdd", 16384,
+                                           "gb", &matches), ==, RH_OK);
+    g_assert_cmpuint(matches->len, ==, 2);
+    gboolean saw_clone = FALSE;
+    for (guint i = 0; i < matches->len; i++) {
+        RhDatMatch *m = g_ptr_array_index(matches, i);
+        if (g_strcmp0(m->entry->game_name, "Clone Game") == 0) {
+            saw_clone = TRUE;
+            g_assert_cmpstr(m->entry->cloneof, ==, "Sample Game (USA)");
+        }
+    }
+    g_assert_true(saw_clone);
+    g_ptr_array_unref(matches);
+
+    store_close(store);
+    cleanup_dir(dir);
+    g_free(dat_path);
+    g_free(dir);
+}
+
 int main(int argc, char **argv)
 {
     rh_test_init(&argc, &argv);
     g_test_add_func("/dat/logiqx-basic", test_logiqx_basic);
+    g_test_add_func("/dat/clrmamepro-text", test_clrmamepro_text);
     g_test_add_func("/dat/large-stream", test_large_stream);
     g_test_add_func("/dat/sha1-fallback", test_sha1_fallback);
     g_test_add_func("/dat/missing-fields-malformed", test_missing_fields_and_malformed);

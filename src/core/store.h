@@ -76,13 +76,23 @@ RhErr store_game_insert(RhStore *store, const RhGame *game,
                         const GPtrArray *tags);  /* gchar*，可为 NULL */
 
 RhErr store_game_update(RhStore *store, const RhGame *game);
+/* 追加 ROM/媒体到已有游戏（同目录重复导入时合并）；不替换已有行。 */
+RhErr store_game_append_roms(RhStore *store, const char *game_id,
+                             const GPtrArray *roms,  /* RhRomFile*，可为 NULL */
+                             const GPtrArray *media);/* RhMediaFile*，可为 NULL */
 /* 追加媒体并更新游戏元数据；两件事在同一事务中完成。 */
 RhErr store_game_append_media(RhStore *store, const RhGame *game,
                               const GPtrArray *media);
 RhErr store_game_delete(RhStore *store, const char *id);
+/* 删除单个 ROM/媒体行（kind 为 NULL 表示 ROM），空游戏一并清理。 */
+RhErr store_delete_file_row(RhStore *store, const char *dir_path,
+                            const char *filename, const char *kind);
 gboolean store_game_id_exists(RhStore *store, const char *id, RhErr *out_err);
 
 RhGame    *store_game_get(RhStore *store, const char *id, RhErr *out_err);
+/* 按目录查找游戏；重复导入同一目录时用于合并。 */
+RhGame    *store_game_get_by_dir(RhStore *store, const char *dir_path,
+                                 RhErr *out_err);
 GPtrArray *store_roms_for_game(RhStore *store, const char *id, RhErr *out_err);
 /* 只改一个 ROM 的碟号（manage 重排碟片用）；disc_no <= 0 写 NULL。 */
 RhErr store_rom_set_disc(RhStore *store, const char *game_id,

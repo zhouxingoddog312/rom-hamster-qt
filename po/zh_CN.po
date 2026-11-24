@@ -762,7 +762,7 @@ msgstr "同时检查媒体与补丁"
 
 #: src/cli/cmd-dedup.c
 msgid "Compute missing hashes first"
-msgstr "先补算缺失的摘要"
+msgstr "先补算缺失的哈希"
 
 #: src/cli/cmd-dedup.c
 msgid "Ignore files smaller than this many bytes"
@@ -793,7 +793,7 @@ msgstr "查重失败: %s\n"
 #: src/cli/cmd-dedup.c
 #, c-format
 msgid "Backfilled %u hashes (%u failed/missing).\n"
-msgstr "已补算 %u 个摘要（%u 个失败或缺失）。\n"
+msgstr "已补算 %u 个哈希（%u 个失败或缺失）。\n"
 
 #: src/cli/cmd-dedup.c
 #, c-format

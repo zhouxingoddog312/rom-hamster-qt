@@ -14,6 +14,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFont>
+#include <QHash>
 #include <QHeaderView>
 #include <QInputDialog>
 #include <QItemSelectionModel>
@@ -83,6 +84,7 @@ MainWindow::MainWindow(RhStore *store, const QString &dbPath, const QString &roo
 
     if (m_readOnly) {
         m_importAction->setEnabled(false);
+        m_importFilesAction->setEnabled(false);
         statusBar()->showMessage(
             tr("This library was created by a newer version of rom-hamster and is open in read-only mode."));
     }
@@ -110,6 +112,12 @@ void MainWindow::buildActions()
     m_importAction = new QAction(tr("Import Directory…"), this);
     m_importAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+I")));
     connect(m_importAction, &QAction::triggered, this, &MainWindow::chooseAndImport);
+
+    m_importFilesAction = new QAction(tr("Import Files…"), this);
+    m_importFilesAction->setShortcut(
+        QKeySequence(QStringLiteral("Ctrl+Shift+I")));
+    connect(m_importFilesAction, &QAction::triggered, this,
+            &MainWindow::chooseAndImportFiles);
 
     m_refreshAction = new QAction(tr("Refresh List"), this);
     m_refreshAction->setShortcut(QKeySequence::Refresh);
@@ -158,6 +166,7 @@ void MainWindow::buildActions()
 
     QMenu *fileMenu = menuBar()->addMenu(tr("File"));
     fileMenu->addAction(m_importAction);
+    fileMenu->addAction(m_importFilesAction);
     fileMenu->addAction(m_refreshAction);
     fileMenu->addAction(openDir);
     fileMenu->addAction(datSources);
@@ -177,6 +186,7 @@ void MainWindow::buildToolBar()
     QToolBar *bar = addToolBar(tr("Main Toolbar"));
     bar->setMovable(false);
     bar->addAction(m_importAction);
+    bar->addAction(m_importFilesAction);
     bar->addAction(m_refreshAction);
     bar->addSeparator();
 
@@ -290,6 +300,18 @@ void MainWindow::chooseAndImport()
     if (dir.isEmpty())
         return;
     startImport(QStringList{dir});
+}
+
+void MainWindow::chooseAndImportFiles()
+{
+    const QStringList files = QFileDialog::getOpenFileNames(
+        this, tr("Select Files to Import"), m_root,
+        tr("ROM files (*.nes *.sfc *.smc *.gb *.gbc *.gba *.md *.gen *.sms "
+           "*.gg *.pce *.a26 *.z64 *.n64 *.nds *.3ds *.iso *.bin *.cue *.chd "
+           "*.zip *.7z *.rar);;All files (*)"));
+    if (files.isEmpty())
+        return;
+    startImport(files);
 }
 
 void MainWindow::openImportDirectories(const QStringList &paths)
@@ -443,18 +465,28 @@ void MainWindow::startImport(const QStringList &directories)
     }
 
     QStringList dirs;
+    QHash<QString, QStringList> files;
     for (const QString &path : directories) {
         QFileInfo info(path);
-        const QString dir = info.isDir() ? info.absoluteFilePath() : info.absolutePath();
-        if (QFileInfo(dir).isDir() && !dirs.contains(dir))
-            dirs.append(dir);
+        if (info.isDir()) {
+            const QString dir = info.absoluteFilePath();
+            if (QFileInfo(dir).isDir() && !dirs.contains(dir))
+                dirs.append(dir);
+        } else {
+            const QString dir = info.absolutePath();
+            if (!QFileInfo(dir).isDir())
+                continue;
+            if (!dirs.contains(dir))
+                dirs.append(dir);
+            files[dir].append(info.fileName());
+        }
     }
     if (dirs.isEmpty())
         return;
 
     m_importing = true;
 
-    ImportScanThread *scan = new ImportScanThread(m_rules, m_root, dirs, this);
+    ImportScanThread *scan = new ImportScanThread(m_rules, m_root, dirs, files, this);
 
     QProgressDialog *pulse = new QProgressDialog(
         tr("Prescanning source directories…"), QString(), 0, 0, this);

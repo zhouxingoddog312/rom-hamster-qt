@@ -12,8 +12,11 @@ void rh_import_plans_free(QVector<RhImportPlan *> &plans)
 }
 
 ImportScanThread::ImportScanThread(const RhPlatformRules *rules, const QString &root,
-                                   const QStringList &sources, QObject *parent)
-    : QThread(parent), m_rules(rules), m_root(root), m_sources(sources)
+                                   const QStringList &sources,
+                                   const QHash<QString, QStringList> &files,
+                                   QObject *parent)
+    : QThread(parent), m_rules(rules), m_root(root), m_sources(sources),
+      m_files(files)
 {
 }
 
@@ -29,7 +32,22 @@ void ImportScanThread::run()
 
         const QByteArray source = sourceText.toUtf8();
         RhErr err = RH_OK;
-        item.plan = rh_import_plan_scan(m_rules, source.constData(), &err);
+        if (m_files.contains(sourceText)) {
+            const QStringList names = m_files.value(sourceText);
+            QVector<QByteArray> encoded;
+            encoded.reserve(names.size());
+            QVector<const char *> raw;
+            raw.reserve(names.size());
+            for (const QString &name : names) {
+                encoded.append(name.toUtf8());
+                raw.append(encoded.last().constData());
+            }
+            item.plan = rh_import_plan_scan_files(
+                m_rules, source.constData(), raw.constData(),
+                static_cast<guint>(raw.size()), &err);
+        } else {
+            item.plan = rh_import_plan_scan(m_rules, source.constData(), &err);
+        }
         if (item.plan != nullptr)
             rh_import_plan_set_root(item.plan, root.constData());
         if (err != RH_OK)

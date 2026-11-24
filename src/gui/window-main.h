@@ -44,6 +44,7 @@ private:
     void updateStatus();
     void openCurrentDetail();
     void chooseAndImport();
+    void chooseAndImportFiles();
     void startImport(const QStringList &directories);
 
     RhStore        *m_store;
@@ -62,6 +63,7 @@ private:
     QLabel         *m_statusLabel = nullptr;
     QTimer         *m_searchTimer = nullptr;
     QAction        *m_importAction = nullptr;
+    QAction        *m_importFilesAction = nullptr;
     QAction        *m_refreshAction = nullptr;
     QAction        *m_detailAction = nullptr;
 };

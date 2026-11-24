@@ -3,12 +3,16 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QDir>
+#include <QFile>
+#include <QHBoxLayout>
 #include <QHeaderView>
+#include <QItemSelectionModel>
 #include <QLabel>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QTableWidget>
 #include <QVBoxLayout>
-#include <QHBoxLayout>
 
 static QString formatBytes(qint64 value)
 {
@@ -106,26 +110,38 @@ DedupDialog::DedupDialog(const QString &dbPath, const QString &root,
     top->addStretch(1);
 
     m_table = new QTableWidget(this);
-    m_table->setColumnCount(6);
+    m_table->setColumnCount(5);
     m_table->setHorizontalHeaderLabels(
-        {tr("Type"), tr("Hash"), tr("Size"), tr("Copies"), tr("Wasted"),
-         tr("Paths")});
+        {tr("Type"), tr("Hash"), tr("Size"), tr("Group"), tr("Path")});
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_table->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_table->verticalHeader()->setVisible(false);
     m_table->horizontalHeader()->setStretchLastSection(true);
 
     m_summary = new QLabel(this);
+    m_delete = new QPushButton(tr("Delete Selected…"), this);
+    m_delete->setEnabled(false);
+    auto *bottom = new QHBoxLayout();
+    bottom->addWidget(m_delete);
+    bottom->addStretch(1);
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, this);
+    bottom->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
     auto *layout = new QVBoxLayout(this);
     layout->addLayout(top);
     layout->addWidget(m_table, 1);
     layout->addWidget(m_summary);
-    layout->addWidget(buttons);
+    layout->addLayout(bottom);
 
     connect(m_scan, &QPushButton::clicked, this, &DedupDialog::reload);
+    connect(m_delete, &QPushButton::clicked, this, &DedupDialog::deleteSelected);
+    connect(m_table->selectionModel(), &QItemSelectionModel::selectionChanged,
+            this, [this]() {
+                m_delete->setEnabled(
+                    !m_running && !m_table->selectionModel()->selectedRows().isEmpty());
+            });
 
     showPlatforms();
     reload();
@@ -175,6 +191,7 @@ void DedupDialog::reload()
 
     m_running = true;
     m_scan->setEnabled(false);
+    m_delete->setEnabled(false);
     m_summary->setText(m_backfill->isChecked() ? tr("Computing hashes…")
                                                : tr("Scanning…"));
 
@@ -193,6 +210,8 @@ void DedupDialog::reload()
             m_thread = nullptr;
         m_running = false;
         m_scan->setEnabled(true);
+        m_delete->setEnabled(
+            !m_table->selectionModel()->selectedRows().isEmpty());
         if (thread->failed) {
             m_summary->setText(tr("Failed: %1").arg(thread->error));
         } else {
@@ -208,6 +227,8 @@ void DedupDialog::reload()
 void DedupDialog::showGroups(GPtrArray *groups, const RhDedupStats &stats)
 {
     m_table->setRowCount(0);
+    m_rows.clear();
+    m_delete->setEnabled(false);
 
     if (groups == nullptr) {
         m_summary->setText(tr("No duplicates found."));
@@ -217,35 +238,38 @@ void DedupDialog::showGroups(GPtrArray *groups, const RhDedupStats &stats)
     for (guint i = 0; i < groups->len; i++) {
         RhDupGroup *group = static_cast<RhDupGroup *>(
             g_ptr_array_index(groups, i));
-        const int row = m_table->rowCount();
-        m_table->insertRow(row);
 
-        QStringList paths;
         for (guint j = 0; j < group->members->len; j++) {
             RhDupMember *member = static_cast<RhDupMember *>(
                 g_ptr_array_index(group->members, j));
-            QString path = QStringLiteral("%1/%2")
-                               .arg(QString::fromUtf8(member->dir_path),
-                                    QString::fromUtf8(member->filename));
-            if (member->kind != nullptr)
-                path = QStringLiteral("[%1] %2").arg(
-                    QString::fromUtf8(member->kind), path);
+            const QString dirPath = QString::fromUtf8(member->dir_path);
+            const QString filename = QString::fromUtf8(member->filename);
+            QString path = dirPath + QLatin1Char('/') + filename;
             if (member->missing)
                 path += QStringLiteral(" (missing)");
-            paths.append(path);
-        }
 
-        const qint64 wasted = group->size
-                              * static_cast<qint64>(group->members->len - 1);
-        m_table->setItem(row, 0, new QTableWidgetItem(
-            QString::fromUtf8(group->kind)));
-        m_table->setItem(row, 1, new QTableWidgetItem(
-            QString::fromUtf8(group->key).left(12)));
-        m_table->setItem(row, 2, new QTableWidgetItem(formatBytes(group->size)));
-        m_table->setItem(row, 3, new QTableWidgetItem(
-            QString::number(group->members->len)));
-        m_table->setItem(row, 4, new QTableWidgetItem(formatBytes(wasted)));
-        m_table->setItem(row, 5, new QTableWidgetItem(paths.join('\n')));
+            Row rowData;
+            rowData.path = QDir(m_root).filePath(
+                QString::fromUtf8(member->dir_path) + QLatin1Char('/') + filename);
+            rowData.dirPath = dirPath;
+            rowData.filename = filename;
+            rowData.kind = member->kind != nullptr
+                               ? QString::fromUtf8(member->kind) : QString();
+            rowData.missing = member->missing;
+            m_rows.append(rowData);
+
+            const int row = m_table->rowCount();
+            m_table->insertRow(row);
+            m_table->setItem(row, 0, new QTableWidgetItem(
+                member->kind != nullptr ? QString::fromUtf8(member->kind)
+                                        : tr("ROM")));
+            m_table->setItem(row, 1, new QTableWidgetItem(
+                QString::fromUtf8(group->key).left(12)));
+            m_table->setItem(row, 2, new QTableWidgetItem(formatBytes(group->size)));
+            m_table->setItem(row, 3, new QTableWidgetItem(
+                QStringLiteral("#%1").arg(i + 1)));
+            m_table->setItem(row, 4, new QTableWidgetItem(path));
+        }
     }
     m_table->resizeRowsToContents();
 
@@ -261,4 +285,109 @@ void DedupDialog::showGroups(GPtrArray *groups, const RhDedupStats &stats)
     m_summary->setText(summary);
 
     g_ptr_array_unref(groups);
+}
+
+void DedupDialog::deleteSelected()
+{
+    const QModelIndexList selected = m_table->selectionModel()->selectedRows();
+    if (selected.isEmpty())
+        return;
+
+    QVector<int> rows;
+    QStringList paths;
+    for (const QModelIndex &index : selected) {
+        const int row = index.row();
+        if (row < 0 || row >= m_rows.size() || rows.contains(row))
+            continue;
+        rows.append(row);
+        paths.append(m_rows.at(row).path);
+    }
+    if (rows.isEmpty())
+        return;
+
+    QString preview = paths.mid(0, 20).join(QLatin1Char('\n'));
+    if (paths.size() > 20)
+        preview += QStringLiteral("\n…");
+
+    QDialog confirm(this);
+    confirm.setWindowTitle(tr("Delete Selected Files"));
+    auto *layout = new QVBoxLayout(&confirm);
+    layout->addWidget(new QLabel(
+        tr("The following %1 file(s) will be moved to the Recycle Bin / Trash "
+           "and removed from the library:").arg(paths.size()), &confirm));
+    auto *pathLabel = new QLabel(preview, &confirm);
+    pathLabel->setWordWrap(true);
+    layout->addWidget(pathLabel);
+
+    auto *confirmCheck = new QCheckBox(
+        tr("I understand these files will be removed from the library and disk."),
+        &confirm);
+    auto *permanentCheck = new QCheckBox(
+        tr("Delete permanently instead of moving to Trash (cannot be undone)"),
+        &confirm);
+    layout->addWidget(confirmCheck);
+    layout->addWidget(permanentCheck);
+
+    auto *buttons = new QDialogButtonBox(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &confirm);
+    buttons->button(QDialogButtonBox::Ok)->setText(tr("Delete"));
+    buttons->button(QDialogButtonBox::Ok)->setEnabled(false);
+    connect(confirmCheck, &QCheckBox::toggled,
+            buttons->button(QDialogButtonBox::Ok), &QPushButton::setEnabled);
+    connect(buttons, &QDialogButtonBox::accepted, &confirm, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &confirm, &QDialog::reject);
+    layout->addWidget(buttons);
+
+    if (confirm.exec() != QDialog::Accepted)
+        return;
+
+    const bool permanent = permanentCheck->isChecked();
+    if (permanent &&
+        QMessageBox::warning(
+            this, tr("Delete Permanently"),
+            tr("Permanent deletion cannot be undone. Continue?"),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No)
+            != QMessageBox::Yes)
+        return;
+
+    RhErr err = RH_OK;
+    const QByteArray db = m_dbPath.toUtf8();
+    RhStore *store = store_open(db.constData(), &err);
+
+    QStringList failures;
+    int deleted = 0;
+    for (int row : rows) {
+        const Row &item = m_rows.at(row);
+        bool ok = true;
+        if (QFile::exists(item.path)) {
+            ok = permanent ? QFile::remove(item.path)
+                           : QFile::moveToTrash(item.path);
+        }
+        if (!ok) {
+            failures.append(item.path);
+            continue;
+        }
+        if (store != nullptr) {
+            const QByteArray dirPath = item.dirPath.toUtf8();
+            const QByteArray filename = item.filename.toUtf8();
+            const QByteArray kind = item.kind.toUtf8();
+            RhErr del = store_delete_file_row(
+                store, dirPath.constData(), filename.constData(),
+                kind.isEmpty() ? nullptr : kind.constData());
+            if (del != RH_OK)
+                failures.append(item.path);
+        }
+        deleted++;
+    }
+    if (store != nullptr)
+        store_close(store);
+
+    if (!failures.isEmpty()) {
+        QMessageBox::warning(
+            this, tr("Delete Failed"),
+            tr("%1 file(s) were deleted, %2 failed:\n%3")
+                .arg(deleted).arg(failures.size())
+                .arg(failures.mid(0, 10).join(QLatin1Char('\n'))));
+    }
+    reload();
 }
