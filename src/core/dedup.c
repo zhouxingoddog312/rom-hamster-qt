@@ -191,13 +191,17 @@ RhErr rh_dedup_backfill(RhStore *store, const RhDedupOptions *options,
             g_free(crc);
             if (set == RH_OK)
                 stats.hashed++;
+            else if (set == RH_ERR_NOT_FOUND)
+                stats.failed++;      /* 行已不存在：按数据缺失处理 */
             else
-                stats.failed++;
+                result = set;        /* 写库失败：硬错误，交给前端返回 ≥2 */
         } else {
             stats.failed++;
         }
         g_free(canon);
         g_free(path);
+        if (result != RH_OK)
+            break;
         done++;
     }
 
@@ -227,13 +231,17 @@ RhErr rh_dedup_backfill(RhStore *store, const RhDedupOptions *options,
             g_free(crc);
             if (set == RH_OK)
                 stats.hashed++;
-            else
+            else if (set == RH_ERR_NOT_FOUND)
                 stats.failed++;
+            else
+                result = set;
         } else {
             stats.failed++;
         }
         g_free(canon);
         g_free(path);
+        if (result != RH_OK)
+            break;
         done++;
     }
 

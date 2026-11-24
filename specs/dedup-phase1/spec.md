@@ -336,7 +336,11 @@ gboolean rh_import_dup_set_action(RhImportPlanEntry *entry, guint rom_index,
 汇总一行：`Checked N files: X duplicate clusters, Y extra copies, Z bytes wasted.`
 `--backfill` 时先输出 `Backfilled N hashes (M failed/missing).`
 
-退出码：`0` 无重复；`1` 发现重复；`2` 参数/数据库/IO 错误。
+退出码约定：`0` 无重复；`1` 扫描成功且发现重复；`2`（或更大）执行失败——
+参数错误、`--root` 不存在或不是目录、库打不开、数据库读写失败、IO 失败、取消等。
+`1` 只用于“成功完成并发现重复”，任何硬失败都不得返回 1。
+`--backfill` 中个别文件缺失或不可读按 `failed/missing` 计数，不中断扫描、不改变
+0/1 语义；写库失败属于硬失败，返回 2。
 `--root` 缺失时直接报错退出（重复检测需要读取文件）。
 
 ## 10. GUI

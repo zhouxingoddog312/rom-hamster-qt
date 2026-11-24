@@ -38,7 +38,8 @@ int rh_cmd_dedup(int argc, char **argv)
         { NULL, 0, 0, 0, 0, NULL, NULL }
     };
 
-    GOptionContext *ctx = g_option_context_new(_("- Find duplicate ROM/media files"));
+    GOptionContext *ctx = g_option_context_new(
+        _("- Find duplicate ROM/media files (exit: 0 none, 1 found, 2 error)"));
     g_option_context_add_main_entries(ctx, entries, NULL);
     g_option_context_set_translation_domain(ctx, GETTEXT_PACKAGE);
     GError *error = NULL;
@@ -58,6 +59,14 @@ int rh_cmd_dedup(int argc, char **argv)
         return dedup_fail(
             _("Usage: rom-hamster dedup --root DIR [--db PATH] [--platform ID] "
               "[--media] [--backfill] [--min-size BYTES]\n"));
+
+    if (!g_file_test(opt_root, G_FILE_TEST_IS_DIR)) {
+        gchar *msg = g_strdup_printf(_("Library root is not a directory: %s\n"),
+                                     opt_root);
+        int rc = dedup_fail(msg);
+        g_free(msg);
+        return rc;
+    }
 
     gint64 min_size = 0;
     if (opt_min_size != NULL) {

@@ -8,6 +8,8 @@
 - [x] `rom-hamster dedup --root <dir>` 能列出重复 ROM；加 `--media` 能列出
       重复媒体与补丁。
 - [x] `--backfill` 能为缺失摘要的文件补算 `sha1` / `canon_sha1`。
+- [x] 退出码语义：无重复 `0`、发现重复 `1`、参数/根目录/库/数据库/IO/取消等
+      硬失败 `≥2`；`1` 不与任何错误混用。
 - [x] 同内容但一个带 NES/SNES 头、一个不带的 ROM 被判为同一簇。
 - [x] 导入时可对每个重复项选择忽略/共存/覆盖；「应用到全部」生效。
 - [x] 忽略：不复制、不新增 ROM 行。
@@ -26,7 +28,7 @@
 
 - [x] 识别只读，不删除任何文件。
 - [x] 覆盖失败时不会静默丢失旧文件（记 failed 并尽量保留）。
-- [x] 缺失文件不会导致 dedup 中止，只计入 failed/missing。
+- [x] 缺失文件不会导致 dedup 中止，只计入 failed/missing，退出码仍按 0/1 判断。
 
 ## 实机走查（需要真人操作）
 
@@ -106,7 +108,8 @@
 - [ ] 按 A 节第 4–9 步走一遍导入与查找重复。
       预期：行为与 Windows 一致。
 - [ ] `rom-hamster dedup --root <准备目录> --media`。
-      预期：列出重复 ROM（加 `--media` 时也包含重复媒体/补丁），退出码 0。
+      预期：列出重复 ROM（加 `--media` 时也包含重复媒体/补丁），退出码 **1**
+      （发现重复）；无重复目录才是 0，参数/库/IO 错误应为 2。
 - [ ] `dpkg -P rom-hamster-gui rom-hamster-data rom-hamster`。
       预期：应用菜单项与图标消失；`~/.local/share/rom-hamster` 仍保留用户库。
 

@@ -62,6 +62,16 @@ static void hash_path(const char *path, RhHashResult *out)
     g_assert_cmpint(rh_hash_file(path, &options, out), ==, RH_OK);
 }
 
+static gboolean cancel_progress(const char *path, guint done, guint total,
+                                gpointer user_data)
+{
+    (void)path;
+    (void)done;
+    (void)total;
+    (void)user_data;
+    return FALSE;
+}
+
 static RhGame *make_game(const char *id, const char *dir_path, const char *name)
 {
     RhGame *game = rh_game_new();
@@ -270,6 +280,17 @@ static void test_report_and_backfill(void)
     g_assert_nonnull(rom->sha1);
     g_assert_nonnull(rom->canon_sha1);
     g_ptr_array_unref(roms);
+
+    /* 取消：进度回调返回 FALSE 必须报错，不能伪装成“无重复/有重复”。 */
+    gchar *raw2 = g_build_filename(root, "gb/Raw2/raw2.bin", NULL);
+    write_pattern(raw2, NULL, 0, 256);
+    add_rom_game(store, "ddee0001", "gb/Raw2", "Raw2", "raw2.bin", 256, NULL,
+                 NULL);
+    RhDedupOptions cancelled = {.root = root, .platform = "gb",
+                                .progress = cancel_progress};
+    g_assert_cmpint(rh_dedup_backfill(store, &cancelled, &bstats), ==,
+                    RH_ERR_CANCELLED);
+    g_free(raw2);
 
     store_close(store);
     remove_db_files(db);
