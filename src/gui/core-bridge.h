@@ -15,6 +15,7 @@ extern "C" {
 #include "dat-source.h"
 #include "dedup.h"
 #include "detail.h"
+#include "export.h"
 #include "import.h"
 #include "platform.h"
 #include "query.h"

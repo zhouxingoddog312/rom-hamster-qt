@@ -506,24 +506,34 @@
         <translation>关于 rom-hamster</translation>
     </message>
     <message>
+        <location filename="../../../rhwork/src/gui/window-main.cpp" line="143"/>
+        <source>About rom-hamster…</source>
+        <translation>关于 rom-hamster…</translation>
+    </message>
+    <message>
         <location filename="../../../rhwork/src/gui/window-main.cpp" line="144"/>
-        <source>&lt;b&gt;rom-hamster&lt;/b&gt; %1&lt;br/&gt;Dual-platform ROM Library Manager&lt;br/&gt;&lt;br/&gt;Repository: &lt;a href=&quot;%2&quot;&gt;%2&lt;/a&gt;&lt;br/&gt;Report issues: &lt;a href=&quot;%3&quot;&gt;%3&lt;/a&gt;</source>
-        <translation>&lt;b&gt;rom-hamster&lt;/b&gt; %1&lt;br/&gt;双端 ROM 库管理器&lt;br/&gt;&lt;br/&gt;仓库：&lt;a href=&quot;%2&quot;&gt;%2&lt;/a&gt;&lt;br/&gt;问题反馈：&lt;a href=&quot;%3&quot;&gt;%3&lt;/a&gt;</translation>
+        <source>&lt;b&gt;rom-hamster&lt;/b&gt; %1&lt;br/&gt;Dual-platform ROM Library Manager&lt;br/&gt;&lt;br/&gt;&lt;b&gt;Workflow&lt;/b&gt;&lt;br/&gt;Import Games: bring ROMs, archives, media, and patches into the library.&lt;br/&gt;Manage Games: search and filter the library, view details, maintain DAT sources, and find duplicates.&lt;br/&gt;Export Games: generate front-end manifests (ES-DE, EmulationStation, Pegasus).&lt;br/&gt;&lt;br/&gt;Qt %2&lt;br/&gt;Repository: &lt;a href=&quot;%3&quot;&gt;%3&lt;/a&gt;&lt;br/&gt;Report issues: &lt;a href=&quot;%4&quot;&gt;%4&lt;/a&gt;</source>
+        <translation>&lt;b&gt;rom-hamster&lt;/b&gt; %1&lt;br/&gt;双端 ROM 库管理器&lt;br/&gt;&lt;br/&gt;&lt;b&gt;工作流&lt;/b&gt;&lt;br/&gt;导入游戏：把 ROM、压缩包、媒体与补丁收进库。&lt;br/&gt;管理游戏：检索筛选、查看详情、维护 DAT 源、查找重复。&lt;br/&gt;导出游戏：按前端规格生成清单（ES-DE、EmulationStation、Pegasus）。&lt;br/&gt;&lt;br/&gt;Qt %2&lt;br/&gt;仓库：&lt;a href=&quot;%3&quot;&gt;%3&lt;/a&gt;&lt;br/&gt;问题反馈：&lt;a href=&quot;%4&quot;&gt;%4&lt;/a&gt;</translation>
     </message>
     <message>
-        <location filename="../../../rhwork/src/gui/window-main.cpp" line="151"/>
-        <source>File</source>
-        <translation>文件</translation>
+        <location filename="../../../rhwork/src/gui/window-main.cpp" line="176"/>
+        <source>Export Front-end…</source>
+        <translation>导出前端清单…</translation>
     </message>
     <message>
-        <location filename="../../../rhwork/src/gui/window-main.cpp" line="159"/>
-        <source>View</source>
-        <translation>查看</translation>
+        <location filename="../../../rhwork/src/gui/window-main.cpp" line="181"/>
+        <source>Import Games</source>
+        <translation>导入游戏</translation>
     </message>
     <message>
-        <location filename="../../../rhwork/src/gui/window-main.cpp" line="162"/>
-        <source>Help</source>
-        <translation>帮助</translation>
+        <location filename="../../../rhwork/src/gui/window-main.cpp" line="185"/>
+        <source>Manage Games</source>
+        <translation>管理游戏</translation>
+    </message>
+    <message>
+        <location filename="../../../rhwork/src/gui/window-main.cpp" line="196"/>
+        <source>Export Games</source>
+        <translation>导出游戏</translation>
     </message>
     <message>
         <location filename="../../../rhwork/src/gui/window-main.cpp" line="168"/>
@@ -1119,6 +1129,109 @@ Upgrade rom-hamster before writing to it.</source>
         <location filename="../../../rhwork/src/gui/main.cpp" line="312"/>
         <source>Version %1 is available. Open the download page?</source>
         <translation>发现新版本 %1，是否打开下载页？</translation>
+    </message>
+</context>
+<context>
+    <name>ExportDialog</name>
+    <message>
+        <source>Export Front-end Manifest</source>
+        <translation>导出前端清单</translation>
+    </message>
+    <message>
+        <source>Generate a front-end manifest from the current library. The library itself is not modified.</source>
+        <translation>按前端规格从当前库生成清单；库本身不会被修改。</translation>
+    </message>
+    <message>
+        <source>Front-end spec:</source>
+        <translation>前端规格：</translation>
+    </message>
+    <message>
+        <source>Browse…</source>
+        <translation>浏览…</translation>
+    </message>
+    <message>
+        <source>Choose an output directory…</source>
+        <translation>选择输出目录…</translation>
+    </message>
+    <message>
+        <source>Output directory:</source>
+        <translation>输出目录：</translation>
+    </message>
+    <message>
+        <source>Copy ROM files into the output</source>
+        <translation>复制 ROM 文件到输出目录</translation>
+    </message>
+    <message>
+        <source>Copy media files into the output</source>
+        <translation>复制媒体文件到输出目录</translation>
+    </message>
+    <message>
+        <source>Generate .m3u for multi-disc games</source>
+        <translation>为多碟游戏生成 .m3u</translation>
+    </message>
+    <message>
+        <source>Original (library file name)</source>
+        <translation>原始名（库内文件名）</translation>
+    </message>
+    <message>
+        <source>DAT standard name</source>
+        <translation>DAT 标准名</translation>
+    </message>
+    <message>
+        <source>Game display name</source>
+        <translation>游戏显示名</translation>
+    </message>
+    <message>
+        <source>ROM file names:</source>
+        <translation>ROM 文件名：</translation>
+    </message>
+    <message>
+        <source>Export</source>
+        <translation>导出</translation>
+    </message>
+    <message>
+        <source>Select Front-end Specification</source>
+        <translation>选择前端规格文件</translation>
+    </message>
+    <message>
+        <source>Front-end specs (*.conf);;All files (*)</source>
+        <translation>前端规格 (*.conf);;所有文件 (*)</translation>
+    </message>
+    <message>
+        <source>Select Export Output Directory</source>
+        <translation>选择导出输出目录</translation>
+    </message>
+    <message>
+        <source>Select a front-end specification first.</source>
+        <translation>请先选择前端规格文件。</translation>
+    </message>
+    <message>
+        <source>Select an output directory first.</source>
+        <translation>请先选择输出目录。</translation>
+    </message>
+    <message>
+        <source>Cannot load the front-end specification: %1</source>
+        <translation>无法加载前端规格：%1</translation>
+    </message>
+    <message>
+        <source>Cannot create the output directory: %1</source>
+        <translation>无法创建输出目录：%1</translation>
+    </message>
+    <message>
+        <source>Exporting…</source>
+        <translation>导出中…</translation>
+    </message>
+    <message>
+        <source>Exporting: %1</source>
+        <translation>正在导出：%1</translation>
+    </message>
+    <message>
+        <source>Export finished: %1 games, %2 ROM files, %3 media files, %4 errors.</source>
+        <translation>导出完成：%1 个游戏、%2 个 ROM 文件、%3 个媒体文件、%4 个错误。</translation>
+    </message>
+    <message>
+        <source>Export failed: %1</source>
+        <translation>导出失败：%1</translation>
     </message>
 </context>
 </TS>

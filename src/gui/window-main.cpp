@@ -37,6 +37,7 @@
 
 #include "dat-dialog.h"
 #include "dedup-dialog.h"
+#include "export-dialog.h"
 #include "import-dups-dialog.h"
 #include "import-job.h"
 #include "model-games.h"
@@ -153,32 +154,50 @@ void MainWindow::buildActions()
     connect(m_detailAction, &QAction::triggered, this, &MainWindow::openCurrentDetail);
     addAction(m_detailAction);
 
-    QAction *about = new QAction(tr("About"), this);
+    QAction *about = new QAction(tr("About rom-hamster…"), this);
     connect(about, &QAction::triggered, this, [this]() {
         QMessageBox::about(
             this, tr("About rom-hamster"),
             tr("<b>rom-hamster</b> %1<br/>Dual-platform ROM Library Manager<br/><br/>"
-               "Repository: <a href=\"%2\">%2</a><br/>Report issues: <a href=\"%3\">%3</a>")
+               "<b>Workflow</b><br/>"
+               "Import Games: bring ROMs, archives, media, and patches into the library.<br/>"
+               "Manage Games: search and filter the library, view details, maintain DAT sources, "
+               "and find duplicates.<br/>"
+               "Export Games: generate front-end manifests (ES-DE, EmulationStation, Pegasus).<br/><br/>"
+               "Qt %2<br/>"
+               "Repository: <a href=\"%3\">%3</a><br/>Report issues: <a href=\"%4\">%4</a>")
                 .arg(QString::fromLatin1(RH_VERSION),
+                     QString::fromLatin1(qVersion()),
                      QString::fromLatin1(RH_REPO_URL),
                      QString::fromLatin1(RH_ISSUES_URL)));
     });
 
-    QMenu *fileMenu = menuBar()->addMenu(tr("File"));
-    fileMenu->addAction(m_importAction);
-    fileMenu->addAction(m_importFilesAction);
-    fileMenu->addAction(m_refreshAction);
-    fileMenu->addAction(openDir);
-    fileMenu->addAction(datSources);
-    fileMenu->addAction(findDuplicates);
-    fileMenu->addSeparator();
-    fileMenu->addAction(quit);
+    QAction *exportManifest = new QAction(tr("Export Front-end…"), this);
+    connect(exportManifest, &QAction::triggered, this, [this]() {
+        ExportDialog dialog(m_dbPath, m_root, m_rules, this);
+        dialog.exec();
+    });
 
-    QMenu *viewMenu = menuBar()->addMenu(tr("View"));
-    viewMenu->addAction(m_detailAction);
+    QMenu *importMenu = menuBar()->addMenu(tr("Import Games"));
+    importMenu->addAction(m_importAction);
+    importMenu->addAction(m_importFilesAction);
 
-    QMenu *helpMenu = menuBar()->addMenu(tr("Help"));
-    helpMenu->addAction(about);
+    QMenu *manageMenu = menuBar()->addMenu(tr("Manage Games"));
+    manageMenu->addAction(m_refreshAction);
+    manageMenu->addAction(m_detailAction);
+    manageMenu->addSeparator();
+    manageMenu->addAction(findDuplicates);
+    manageMenu->addAction(datSources);
+    manageMenu->addSeparator();
+    manageMenu->addAction(openDir);
+    manageMenu->addSeparator();
+    manageMenu->addAction(quit);
+
+    QMenu *exportMenu = menuBar()->addMenu(tr("Export Games"));
+    exportMenu->addAction(exportManifest);
+
+    QMenu *aboutMenu = menuBar()->addMenu(tr("About"));
+    aboutMenu->addAction(about);
 }
 
 void MainWindow::buildToolBar()
