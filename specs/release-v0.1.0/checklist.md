@@ -6,8 +6,14 @@
 
 ## 0. 取产物并校验
 
-- [ ] 从 GitHub Release 下载全部产物与 `SHA256SUMS`
-- [ ] `sha256sum -c SHA256SUMS`（Windows 用 `certutil -hashfile <文件> SHA256` 对照）
+发版要求 **Gitee 与 GitHub 两端都有同一版本的 Release，且资产清单一致**。
+
+- [ ] 从 GitHub Release 与 Gitee Release 各下载全部产物与 `SHA256SUMS`
+- [ ] 两端资产文件名逐项一致（数量与名称都相同），且**只含正式产物**：
+      deb / tar.gz / AppImage / zip / setup.exe / `SHA256SUMS`；
+      不得出现 `.log`、`*-debug*.txt` 等调试文件
+- [ ] 两端 `SHA256SUMS` 内容一致，且 `sha256sum -c SHA256SUMS` 全部通过
+      （Windows 用 `certutil -hashfile <文件> SHA256` 对照）
 - [ ] 记录版本：`rom-hamster version` 输出 `0.1.0`
 
 ## 1. Linux deb（Ubuntu 22.04、24.04、Debian 12 各一遍）

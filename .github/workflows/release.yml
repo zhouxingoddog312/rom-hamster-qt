@@ -1,9 +1,18 @@
 name: Release
 
-# 打 v* 标签时在四个平台打包并发布 GitHub Release（ARCHITECTURE.md §9.1）。
+# 打 v* 标签时在四个平台打包，并同时发布到 GitHub 与 Gitee 两个 Release
+# （ARCHITECTURE.md §9.1）。
 #   Linux  : CLI deb + CLI tarball，GUI deb + AppImage
 #   Windows: CLI zip，GUI zip + Inno Setup 安装包
 # 全部产物汇总成 SHA256SUMS 后一起上传；不做签名。
+#
+# 双端发布：GitHub 用 softprops/action-gh-release，Gitee 用
+# packaging/publish-gitee.sh。Gitee 侧需要仓库 secret `GITEE_TOKEN`
+# （Gitee 私人令牌，projects 权限）；仓库名可用变量 `GITEE_REPO` 覆盖，
+# 默认 goddog312/rom-hamster-qt。
+#
+# 资产白名单：发布只允许正式产物与 SHA256SUMS。构建诊断日志一律写到
+# runner 的临时目录并只作为 Actions artifact 保留，绝不进入 dist/。
 on:
   push:
     tags: ['v*']
@@ -118,11 +127,12 @@ jobs:
             exit "$rc"
           fi
       - name: Upload debug log
-        # 仅在打包失败时上传：成功时若上传，release job 会把调试文件一起发进 Release。
+        # 仅在打包失败时上传，且只进 Actions artifact（保留 3 天），不写 dist/。
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: linux-gui-debug-log
+          retention-days: 3
           path: |
             /tmp/make-gui-deb.log
             /tmp/pre-debug.txt
@@ -278,11 +288,30 @@ jobs:
           }
       - name: Checksums
         run: sh packaging/make-checksums.sh
+      - name: Verify asset allowlist
+        # 双重保险：即使下载或打包环节混入了日志/调试文件，也在这里中断，
+        # 不让任何非白名单文件进入 Release。
+        run: |
+          unexpected=$(ls -1 dist | grep -Ev \
+            '^rom-hamster[^/]*\.(deb|zip|tar\.gz|tar\.xz|exe|AppImage)$|^SHA256SUMS$' || true)
+          if [ -n "$unexpected" ]; then
+            echo "dist/ 中存在非正式产物，拒绝发布：" >&2
+            printf '  %s\n' $unexpected >&2
+            exit 1
+          fi
+          ls -1 dist
       - name: Publish
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
+          # 显式白名单，避免 dist/* 把任何意外文件一并发布。
+          files: |
+            dist/*.deb
+            dist/*.zip
+            dist/*.tar.gz
+            dist/*.exe
+            dist/*.AppImage
+            dist/SHA256SUMS
           fail_on_unmatched_files: true
           generate_release_notes: true
       - uses: actions/upload-artifact@v4
@@ -290,3 +319,24 @@ jobs:
           name: release-assets
           path: dist/*
           if-no-files-found: error
+
+  gitee-release:
+    name: publish Gitee release
+    # 与 GitHub 发布同源：复用 release job 校验过的同一份资产，保证两端一致。
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 需要完整标签历史才能生成「上一版..本版」的发布说明。
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: dist
+      - name: Publish to Gitee
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_REPO: ${{ vars.GITEE_REPO || 'goddog312/rom-hamster-qt' }}
+        run: sh packaging/publish-gitee.sh "$GITHUB_REF_NAME"

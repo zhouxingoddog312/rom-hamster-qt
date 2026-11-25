@@ -1034,7 +1034,7 @@ pkg-config --modversion glib-2.0; sqlite3 --version; qmake6 -query QT_VERSION; l
 
 CI 入口是 `ci/build-matrix.sh`：在 Linux 上跑 `linux-cli`/`linux-gui` 两个预设并在末尾补一组 `-DRH_SANITIZE=address,undefined`；在 MSYS2(MINGW64) 上跑 `windows-cli`/`windows-gui`。两个平台各跑一次即覆盖四组矩阵。
 
-远端自动执行：`.github/workflows/ci.yml` 在 GitHub 镜像上按 push/PR 触发，四个 job 与上面四组一一对应（Linux 两份在 ubuntu-24.04，Windows 两份在 windows-latest + MSYS2 MINGW64，GUI 的 Qt 分别用 aqt 6.8 与 `mingw-w64-x86_64-qt6-base`）。本地脚本保留作离线兜底；Gitee 主仓目前不跑流水线，推送镜像即触发。
+远端自动执行：`.github/workflows/ci.yml` 在 GitHub 镜像上按 push/PR 触发，四个 job 与上面四组一一对应（Linux 两份在 ubuntu-24.04，Windows 两份在 windows-latest + MSYS2 MINGW64，GUI 的 Qt 分别用 aqt 6.8 与 `mingw-w64-x86_64-qt6-base`）。本地脚本保留作离线兜底；Gitee 主仓目前不跑流水线，推送镜像即触发，但**发版时 Release 会同步回 Gitee**（见 §9.1「发布渠道」）。
 
 **当前验证状态（2026-11-17，M1 进行中）**：四组在真机跑通，且 M1 已完成 `rh-str`、`rh-records`、`store` 三个模块——
 
@@ -1087,6 +1087,14 @@ GUI 二进制通过 `rpath` + `qt.conf` 指向 `/usr/lib/rom-hamster/qt6/` 与�
 **zip 必须自包含**：`libromham.dll` 与 CLI/GUI 的传递依赖（glib、gio、gobject、gmodule、intl、iconv、pcre2、zlib、sqlite3、libxml2、libarchive 及其依赖，以及 GUI 的 `libstdc++`/`libgcc`/Qt）都要复制到 `bin/`。`packaging/windows/package-zip.ps1` 用 `objdump -p` 递归读 PE 导入表，凡能在工具链目录解析到的 DLL 一律复制（解析不到的视为 Windows 系统 DLL），GUI 版先跑 `windeployqt` 再补非 Qt 依赖。Qt 动态库由 `windeployqt` 收集；MSVC 场景由 `windeployqt --compiler-runtime` 或随包 VC++ Redist 解决。**不提供 MSIX/商店包**；**不做代码签名**，发布页公布 SHA-256 校验和与构建来源，并说明 SmartScreen 提示。
 
 验收必须在**干净环境**做：把 `PATH` 限制为 `%SystemRoot%\System32;%SystemRoot%` 后运行 `bin\rom-hamster.exe --version`。只在仓库目录里跑会命中开发机上 `msys64\mingw64\bin` 里已有的 DLL，从而把「缺 DLL」测成「可运行」——这正是早期「解压 zip 后能跑」的结论失效的原因。脚本第 4 步内置了这条检查，缺依赖会直接失败而不是产出坏包。
+
+**发布渠道：Gitee 与 GitHub 双端同步**
+
+- 每次打 `v*` 标签，`.github/workflows/release.yml` 必须让**两端都有同一版本、同一组资产**的 Release：GitHub 由 `softprops/action-gh-release` 发布，Gitee 由 `packaging/publish-gitee.sh` 调用 Gitee OpenAPI 创建/更新 Release 并上传附件。
+- Gitee 侧依赖秘密 `GITEE_TOKEN`（Gitee 私人令牌，projects 权限），仓库名默认 `goddog312/rom-hamster-qt`，可用仓库变量 `GITEE_REPO` 覆盖；令牌只放在 GitHub Actions secret，不写进仓库。
+- 两端资产白名单一致：`rom-hamster*` 的 `.deb`/`.zip`/`.tar.gz`/`.tar.xz`/`.exe`/`.AppImage` 与 `SHA256SUMS`。上传前有校验步骤，`dist/` 里出现任何白名单之外的文件（日志、临时文件、调试快照）就让发布失败。
+- 构建诊断日志只写 runner 临时目录，仅作为 Actions artifact 保留 3 天，**绝不复制进 `dist/`**；此前 `make-gui-deb.log`、`pre-debug.txt` 泄漏进 v0.1.0 Release 的路径已由「下载 artifact 时按名称过滤 + 上传白名单 + 发布前校验」三层堵死。
+- 已发布版本若发现误传文件，应删除对应附件并重跑 Gitee 同步脚本，使两端资产重新对齐。
 
 ### 9.2 配置文件的安装位置
 
@@ -1509,6 +1517,10 @@ MinGW 运行时，再用仅含 `System32` 的 PATH 自检）、`packaging/make-d
   （CLI deb + tarball、GUI deb + AppImage、Windows zip、zip + setup），
   汇总 `SHA256SUMS` 后经 `softprops/action-gh-release` 发布；构建统一在
   Ubuntu 22.04 上完成。
+- 双端发布（2026-11-23）：GitHub 之外新增 `gitee-release` job，调用
+  `packaging/publish-gitee.sh` 在同一标签下创建/更新 Gitee Release 并上传
+  同一份资产。发布前校验 `dist/` 白名单，`action-gh-release` 改为显式文件
+  列表；调试日志 artifact 保留期 3 天且永不进入 `dist/`。
 - AppStream 截图：`rom-hamster-gui --screenshot PATH` 在首帧后抓主窗口
   （offscreen/Xvfb 均可），生成 `data/screenshots/rom-hamster-main.png`
   并接入 metainfo；`appstreamcli validate` 通过。

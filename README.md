@@ -54,7 +54,21 @@ GitHub Actions 跑同一套矩阵（`.github/workflows/ci.yml`）：Ubuntu 24.04
 ASan+UBSan、Ubuntu 22.04（glibc 2.35 基线）与 MSYS2 MINGW64 的 CLI/GUI，并校验
 gettext 目录（`msgfmt --check`）与 Qt 翻译（`lrelease`）。
 打 `v*` 标签时 `.github/workflows/release.yml` 在四个平台打包 deb / tar.gz /
-AppImage / zip / setup，汇总 `SHA256SUMS` 后发布 GitHub Release。
+AppImage / zip / setup，汇总 `SHA256SUMS` 后**同时发布到 GitHub 与 Gitee 两个
+Release**，两端资产完全一致。Gitee 侧由 `packaging/publish-gitee.sh` 通过 API
+创建/更新 Release 并上传附件，需要仓库 secret `GITEE_TOKEN`（Gitee 私人令牌，
+projects 权限）；仓库名默认 `goddog312/rom-hamster-qt`，可用仓库变量
+`GITEE_REPO` 覆盖。发布只上传白名单内的正式产物与 `SHA256SUMS`，调试日志只作为
+Actions artifact 保留 3 天，不会进入任何 Release。
+
+发布页：[GitHub Releases](https://github.com/zhouxingoddog312/rom-hamster-qt/releases) ·
+[Gitee Releases](https://gitee.com/goddog312/rom-hamster-qt/releases)。
+给已发布版本补齐 Gitee（例如 v0.1.0）时，把该版本全部资产与 `SHA256SUMS` 放进
+`dist/` 后执行：
+
+```sh
+GITEE_TOKEN=<令牌> sh packaging/publish-gitee.sh v0.1.0
+```
 
 ## 仓库与同步
 
